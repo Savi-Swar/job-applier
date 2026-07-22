@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Job Applier — your profile</title>
+<link rel="icon" href="icon48.png">
+<style>
+  @font-face { font-family: 'Space Grotesk'; src: url('sg.woff2') format('woff2'); font-weight: 300 800; font-display: swap; }
+  :root {
+    --font-display: 'Space Grotesk', -apple-system, sans-serif;
+    --grad: linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #22d3ee 110%);
+    --bg: #f4f5f9; --surface: #fff; --ink: #1c2433; --ink-2: #5b6577; --ink-3: #98a2b3;
+    --line: #e9ecf2; --accent: #2563eb; --accent-soft: #e8eeff;
+    --shadow: 0 1px 2px rgba(16,24,40,.05), 0 6px 20px rgba(16,24,40,.06);
+    --code-bg: #eef0f5;
+  }
+  [data-theme="dark"] {
+    --bg: #10131c; --surface: #181d2a; --ink: #e8ebf3; --ink-2: #9aa3b5; --ink-3: #6d7689;
+    --line: #262c3d; --accent: #6b95f8; --accent-soft: #1d2942;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 20px rgba(0,0,0,.3);
+    --code-bg: #222840;
+  }
+  [data-theme="dark"] .field input, [data-theme="dark"] .field select, [data-theme="dark"] .field textarea,
+  [data-theme="dark"] details textarea { background: var(--bg); color: var(--ink); }
+  [data-theme="dark"] .savebar { background: rgba(16,19,28,.9); }
+  * { box-sizing: border-box; }
+  body {
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif;
+    margin: 0; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 40px 28px 120px; }
+  #form { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  #form .card { margin-bottom: 0; }
+  #form .card:last-child { grid-column: 1 / -1; }
+  @media (max-width: 900px) { #form { grid-template-columns: 1fr; } }
+  h1 { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -.025em; margin: 0 0 4px;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
+  .card h2 { font-family: var(--font-display); }
+  .sub { color: var(--ink-2); margin: 0 0 28px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; box-shadow: var(--shadow); margin-bottom: 18px; }
+  .card h2 { font-size: 15px; font-weight: 700; margin: 0 0 2px; }
+  .card .hint { font-size: 12.5px; color: var(--ink-3); margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .field label { display: block; font-size: 11px; font-weight: 650; color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+    font-size: 13.5px; font-family: inherit; background: #fff; color: var(--ink);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+  }
+  .field.full { grid-column: 1 / -1; }
+  .field textarea { min-height: 110px; line-height: 1.6; }
+  details { margin-top: 4px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+  details textarea { width: 100%; min-height: 140px; margin-top: 10px; font: 12px/1.6 ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-radius: 9px; padding: 12px; }
+  .savebar {
+    position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255,255,255,.9); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--line); padding: 14px 28px; display: flex; align-items: center; gap: 14px; justify-content: center;
+  }
+  button.primary {
+    padding: 10px 26px; border: 0; border-radius: 10px; background: var(--grad); color: #fff;
+    font-weight: 650; font-size: 14px; cursor: pointer; box-shadow: 0 2px 14px rgba(99,102,241,.35);
+  }
+  button.primary:hover { filter: brightness(1.1); }
+  .ok { color: #16863f; font-weight: 600; }
+  .err { color: #d03325; font-weight: 600; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+  <main>
+    <p style="margin:0 0 14px"><a href="dashboard.html#tab-today" style="color:var(--accent);text-decoration:none;font-weight:600;font-size:13px">← Back to dashboard</a></p>
+    <h1>Your profile</h1>
+    <p class="sub">Fill this out <b>once</b> — it's the standard set of questions job applications actually ask
+    (compiled from Greenhouse, Lever, Workday, iCIMS &amp; friends). The autofill maps each site's wording onto these answers.
+    Answer honestly: this gets typed into real applications.</p>
+
+    <div id="form"></div>
+
+    <div class="card">
+      <h2>Gemini API key</h2>
+      <p class="hint"><b>Claude first:</b> if the local Claude bridge is running and you've logged the
+      <code>claude</code> CLI into your Max plan (run <code>claude</code> in Terminal once → <code>/login</code>),
+      all AI features use Claude — free on your plan, no limits that matter. Gemini below is the automatic
+      fallback. Used only for the AI features (drafted answers, tailoring, cover letters, analysis) —
+      field autofill never uses the API and has no limits. Google's free tier caps requests per day
+      <b>per model per key</b>; the tool auto-falls-back across 3 models, and you can paste
+      <b>several keys separated by commas</b> (each free at aistudio.google.com) to multiply your headroom.</p>
+      <div class="grid"><div class="field full"><input type="password" id="apiKey" placeholder="AIza… / AQ.…"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>Custom answers (advanced)</h2>
+      <p class="hint">Extra stock answers for oddball questions the form above doesn't cover. Any field whose label
+      contains a <code>match</code> string gets the <code>value</code>.</p>
+      <details>
+        <summary>Edit custom answers JSON</summary>
+        <textarea id="answers" spellcheck="false"></textarea>
+      </details>
+      <details>
+        <summary>Edit work-experience entries (fill multi-entry history blocks, most recent first)</summary>
+        <textarea id="expJson" spellcheck="false"></textarea>
+      </details>
+      <p class="hint" style="margin-top:12px">Resumes, AI answer templates &amp; LinkedIn searches live in the
+      dashboard's <b>Profile</b> tab.</p>
+    </div>
+  </main>
+
+  <div class="savebar">
+    <a href="dashboard.html#tab-today" style="color:var(--ink-2);text-decoration:none;font-size:13px;font-weight:600">← Dashboard</a>
+    <button class="primary" id="save">Save profile</button>
+    <span id="status"></span>
+  </div>
+
+  <script src="parser.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+{
+  "manifest_version": 3,
+  "name": "Job Applier (personal)",
+  "version": "1.0",
+  "description": "Autofills job applications from my profile and drafts free-text answers with Gemini.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "clipboardWrite",
+    "alarms",
+    "notifications",
+    "downloads",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://127.0.0.1/*",
+    "https://gmail.googleapis.com/*",
+    "https://accounts.google.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://mail.google.com/*",
+        "https://outlook.office.com/*",
+        "https://outlook.office365.com/*",
+        "https://outlook.live.com/*"
+      ],
+      "js": [
+        "parser.js",
+        "emailscan.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://*.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.icims.com/*",
+        "https://jobs.smartrecruiters.com/*",
+        "https://apply.workable.com/*",
+        "https://jobs.jobvite.com/*",
+        "https://*.bamboohr.com/*",
+        "https://jobs.dover.com/*",
+        "https://*.rippling-ats.com/*",
+        "https://*.oraclecloud.com/*",
+        "https://*.successfactors.com/*",
+        "https://*.successfactors.eu/*",
+        "https://*.taleo.net/*",
+        "https://*.eightfold.ai/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}

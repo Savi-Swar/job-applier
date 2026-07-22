@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Job Applier — dashboard</title>
+<link rel="icon" href="icon48.png">
+<style>
+  @font-face { font-family: 'Space Grotesk'; src: url('sg.woff2') format('woff2'); font-weight: 300 800; font-display: swap; }
+  @font-face { font-family: 'JetBrains Mono'; src: url('jbm.woff2') format('woff2'); font-weight: 300 800; font-display: swap; }
+  :root {
+    --font-display: 'Space Grotesk', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --grad: linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #22d3ee 110%);
+    --glow1: rgba(99,102,241,.16);
+    --glow2: rgba(34,211,238,.10);
+    --grain: .5;
+    --bg: #f4f5f9;
+    --surface: #ffffff;
+    --ink: #1c2433;
+    --ink-2: #5b6577;
+    --ink-3: #98a2b3;
+    --line: #e9ecf2;
+    --accent: #2563eb;
+    --accent-soft: #e8eeff;
+    --green: #16863f;
+    --green-soft: #e4f5e9;
+    --orange: #c2660a;
+    --orange-soft: #fdf0df;
+    --red: #d03325;
+    --red-soft: #fdeae7;
+    --violet: #6d3fd4;
+    --violet-soft: #f0e9fd;
+    --teal: #0e7c86;
+    --shadow: 0 1px 2px rgba(16,24,40,.05), 0 6px 20px rgba(16,24,40,.06);
+    --radius: 14px;
+    --header-bg: rgba(255,255,255,.85);
+    --hover: #eef0f5;
+    --row-hover: #f8faff;
+    --chip-bg: #f0f1f5;
+    --warn-bg: #fffaf0;
+    --warn-line: #f3e3bd;
+    --code-bg: #f7f8fb;
+    --swe-ink: #1d54cd;
+    --mlai-bg: #e0f4ee;
+    --mlai-ink: #0c7a5a;
+    --chip-on-line: #bcd0fb;
+  }
+  [data-theme="dark"] {
+    --glow1: rgba(99,102,241,.16);
+    --glow2: rgba(34,211,238,.08);
+    --grain: .3;
+    --bg: #0b0e17;
+    --surface: #121724;
+    --ink: #e8ebf3;
+    --ink-2: #9aa3b5;
+    --ink-3: #6d7689;
+    --line: #262c3d;
+    --accent: #6b95f8;
+    --accent-soft: #1d2942;
+    --green: #4ade80;
+    --green-soft: #142f20;
+    --orange: #f3a33c;
+    --orange-soft: #33250f;
+    --red: #f87168;
+    --red-soft: #3a1b18;
+    --violet: #a78bfa;
+    --violet-soft: #2a2148;
+    --teal: #2dd4bf;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 20px rgba(0,0,0,.3);
+    --header-bg: rgba(16,19,28,.85);
+    --hover: #1f2433;
+    --row-hover: #1c2233;
+    --chip-bg: #222840;
+    --warn-bg: #241f10;
+    --warn-line: #3d3417;
+    --code-bg: #131722;
+    --swe-ink: #8fb0fa;
+    --mlai-bg: #10302a;
+    --mlai-ink: #4fd8b0;
+    --chip-on-line: #33477a;
+  }
+  html { transition: background .2s; }
+  body { transition: background .2s, color .2s; }
+  * { box-sizing: border-box; }
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(700px 420px at 88% -8%, var(--glow1), transparent 65%),
+      radial-gradient(560px 360px at -6% 38%, var(--glow2), transparent 60%);
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0; z-index: 2147483000; pointer-events: none;
+    opacity: calc(var(--grain) * .16); mix-blend-mode: soft-light;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>");
+  }
+  header, main { position: relative; z-index: 1; }
+  body {
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif;
+    margin: 0; color: var(--ink); background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 32px; white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+    background: var(--header-bg); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 16px; font-weight: 700; margin: 0 22px 0 0; letter-spacing: -.01em; flex: none; }
+  h1 { font-family: var(--font-display); }
+  h1 .logo {
+    display: inline-block; width: 24px; height: 24px; border-radius: 8px;
+    background: var(--grad) center / 100% no-repeat; margin-right: 9px; vertical-align: -6px;
+    box-shadow: 0 2px 10px rgba(99,102,241,.45); position: relative;
+  }
+  h1 .logo::after {
+    content: ''; position: absolute; inset: 0;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='white' d='M13.2 2.5 5 13.6h4.6L10.8 21.5 19 10.4h-4.6z'/></svg>") center / 58% no-repeat;
+  }
+  .tab {
+    background: none; border: 0; font-size: 13.5px; font-weight: 550; color: var(--ink-2);
+    cursor: pointer; padding: 7px 14px; border-radius: 999px; transition: all .15s;
+  }
+  .tab:hover { color: var(--ink); background: var(--hover); }
+  .tab.active { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
+  #feedMeta { font-size: 12px; color: var(--ink-3); margin-left: auto; }
+
+  main { max-width: 1240px; margin: 0 auto; padding: 30px 32px 90px; }
+
+  /* ---------- hero / today ---------- */
+  .hero { margin: 6px 0 24px; }
+  .hero h2 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter-spacing: -.025em; margin: 0 0 2px; }
+  .hero h2 .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero .muted { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; }
+  #heroPick { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px !important;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 16px; box-shadow: var(--shadow); }
+  .secHead { font-family: var(--font-display); font-size: 17.5px; font-weight: 700; letter-spacing: -.01em; margin: 38px 0 4px; }
+  .secHead::before { content: ''; display: inline-block; width: 4px; height: 15px; border-radius: 2px;
+    background: var(--grad); margin-right: 10px; }
+  .secSub { font-size: 13px; color: var(--ink-3); margin: 0 0 14px; }
+
+  /* ---------- stats ---------- */
+  .stats {
+    display: inline-flex; flex-wrap: wrap; margin: 0 0 10px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .stat { padding: 14px 24px; min-width: 104px; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: 0; }
+  .stat b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 23px; font-weight: 700; display: block; letter-spacing: -.03em; }
+  .stat span { font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+
+  /* ---------- filters & chips ---------- */
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .filters input[type="text"], .filters input[type="number"], .filters select {
+    padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px;
+    background: var(--surface); color: var(--ink); transition: border .15s, box-shadow .15s;
+  }
+  .filters input:focus, .filters select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  .filters input[type="text"] { min-width: 200px; }
+  .filters input[type="number"] { width: 64px; }
+  .filters label { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; align-items: center; }
+  .chips .lbl { font-size: 12px; color: var(--ink-3); margin-right: 3px; font-weight: 600; }
+  .chip {
+    font-size: 12.5px; font-weight: 550; padding: 5px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+    cursor: pointer; user-select: none; transition: all .15s;
+  }
+  .chip:hover { border-color: var(--ink-3); }
+  .chip.on { background: var(--accent-soft); border-color: var(--chip-on-line); color: var(--accent); }
+
+  /* ---------- buttons ---------- */
+  button.primary {
+    padding: 9px 18px; border: 0; border-radius: 10px; background: var(--grad); color: #fff;
+    font-weight: 650; font-size: 13.5px; cursor: pointer; box-shadow: 0 2px 14px rgba(99,102,241,.35);
+    transition: filter .15s, transform .1s;
+  }
+  button.primary:hover { filter: brightness(1.1); }
+  button.primary:active { transform: scale(.98); }
+  button.primary:disabled { filter: saturate(.3) brightness(1.1); box-shadow: none; }
+  button.ghost {
+    padding: 6px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
+    font-size: 12.5px; font-weight: 550; color: var(--ink-2); cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- tables ---------- */
+  .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--ink-3); font-weight: 650; padding: 13px 16px; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: 13px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 13.5px; }
+  tr:last-child td { border-bottom: 0; }
+  tr:hover td { background: var(--row-hover); }
+  td b { font-weight: 650; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .muted { color: var(--ink-3); font-size: 12.5px; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; }
+  #feedMeta { font-family: var(--font-mono); font-size: 11px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+  #calGrid .d, .calCell .n { font-family: var(--font-mono); }
+  #insightsChart text { font-family: var(--font-mono); }
+
+  /* ---------- badges & category pills ---------- */
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 7px; white-space: nowrap;
+  }
+  .badge.applied { background: var(--green-soft); color: var(--green); }
+  .badge.closed { background: var(--red-soft); color: var(--red); }
+  .badge.cooked { background: var(--chip-bg); color: var(--ink-3); }
+  .cat {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+    background: var(--chip-bg); color: var(--ink-2); white-space: nowrap;
+  }
+  .cat.SWE { background: var(--accent-soft); color: var(--swe-ink); }
+  .cat.Quant { background: var(--violet-soft); color: var(--violet); }
+  .cat.MLAI { background: var(--mlai-bg); color: var(--mlai-ink); }
+
+  /* ---------- editable cells ---------- */
+  select.cell, input.cell {
+    padding: 6px 9px; border-radius: 8px; border: 1px solid transparent; font-size: 12.5px;
+    background: transparent; transition: all .15s;
+  }
+  input.cell { width: 116px; }
+  input.cell.wide { width: 170px; }
+  select.cell:hover, input.cell:hover { border-color: var(--line); background: var(--surface); }
+  select.cell:focus, input.cell:focus { border-color: var(--accent); background: var(--surface); outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+
+  .empty { text-align: center; color: var(--ink-3); padding: 44px 0; font-size: 13.5px; }
+
+  /* ---------- pending cards ---------- */
+  #pending, #todayPending { margin-bottom: 16px; }
+  .pendingCard {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius);
+    padding: 14px 18px; margin-bottom: 10px; box-shadow: var(--shadow);
+  }
+  .pendingCard .q { flex: 1; font-size: 13.5px; }
+  .actionCard {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: var(--radius); padding: 12px 16px; margin-bottom: 8px; box-shadow: var(--shadow);
+  }
+  .actionCard .q { flex: 1; font-size: 13.5px; }
+  .actionCard .q b { font-weight: 650; }
+  .actionCard.warn { border-left-color: var(--orange); }
+  .actionCard.dead { border-left-color: var(--ink-3); }
+  .fit {
+    display: inline-block; min-width: 36px; text-align: center; font-size: 11.5px; font-weight: 700;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    padding: 3px 7px; border-radius: 8px; cursor: default;
+  }
+  .fit.hi { background: var(--green-soft); color: var(--green); }
+  .fit.mid { background: var(--accent-soft); color: var(--accent); }
+  .fit.low { background: var(--chip-bg); color: var(--ink-2); }
+  .fit.bad { background: var(--red-soft); color: var(--red); }
+  .funnelRow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .funnelRow .lbl { width: 76px; font-size: 12px; color: var(--ink-2); font-weight: 600; }
+  .funnelRow .bar { height: 22px; border-radius: 6px; background: var(--accent); opacity: .85; min-width: 2px; }
+  .funnelRow .n { font-size: 12px; color: var(--ink-2); font-weight: 650; }
+  table.mini { width: 100%; border-collapse: collapse; }
+  table.mini th { padding: 6px 8px; font-size: 10.5px; }
+  table.mini td { padding: 7px 8px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
+  button.yes { padding: 8px 14px; border: 0; border-radius: 9px; background: var(--green); color: #fff; font-weight: 650; font-size: 12.5px; cursor: pointer; }
+  button.no { padding: 8px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+
+  /* ---------- calendar ---------- */
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; }
+  #calGrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 16px 0 22px; }
+  .calHead { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); text-align: center; font-weight: 650; padding-bottom: 4px; }
+  .calCell {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    min-height: 74px; padding: 8px 10px; cursor: pointer; font-size: 12px; transition: all .15s;
+  }
+  .calCell:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+  .calCell.off { background: transparent; border-color: transparent; cursor: default; box-shadow: none; }
+  .calCell.today { border-color: var(--accent); border-width: 2px; }
+  .calCell.sel { background: var(--accent-soft); }
+  .calCell .d { color: var(--ink-3); font-size: 11px; font-weight: 600; }
+  .calCell .n { display: block; margin-top: 3px; font-weight: 650; font-size: 11.5px; }
+
+  /* ---------- modal ---------- */
+  #modalWrap { position: fixed; inset: 0; z-index: 50; }
+  #modalBack { position: absolute; inset: 0; background: rgba(18,24,38,.45); backdrop-filter: blur(3px); }
+  #modal {
+    position: absolute; top: 48px; left: 50%; transform: translateX(-50%);
+    width: min(720px, 92vw); max-height: calc(100vh - 96px); overflow-y: auto;
+    background: var(--surface); border-radius: 18px; padding: 26px 30px;
+    box-shadow: 0 24px 60px rgba(16,24,40,.3);
+  }
+  #modal h2 { margin: 0 0 2px; font-family: var(--font-display); font-size: 21px; font-weight: 700; letter-spacing: -.015em; }
+  #modal .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+  #modal .grid2 label { display: block; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; font-weight: 650; margin-bottom: 4px; }
+  #modal .grid2 input, #modal .grid2 select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 13px;
+  }
+  #modal .grid2 input:focus, #modal .grid2 select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  #modal pre.desc { white-space: pre-wrap; font: 12.5px/1.6 inherit; background: var(--code-bg); border-radius: 12px; padding: 14px 16px; max-height: 280px; overflow-y: auto; }
+
+  /* ---------- motion & feedback ---------- */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .stat, .scroll, .card, .pendingCard, .actionCard, .calCell { animation: fadeUp .25s ease both; }
+  .stat, .card { transition: transform .15s, box-shadow .15s; }
+  .stat:hover, .card:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(16,24,40,.06), 0 10px 28px rgba(16,24,40,.09); }
+  #modal { animation: fadeUp .2s ease both; }
+  #modalBack { animation: fadeUp .18s ease both; }
+  .loading { opacity: .45; pointer-events: none; transition: opacity .2s; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  button:focus-visible, .chip:focus-visible, a:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px;
+  }
+  #toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--ink); color: var(--bg); padding: 10px 20px; border-radius: 999px;
+    font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none;
+    transition: opacity .2s, transform .2s; z-index: 60; box-shadow: var(--shadow);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%); }
+
+  /* ---------- setup checklist ---------- */
+  #checklist { margin: 18px 0 6px; }
+  .checkCard {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 16px 20px; box-shadow: var(--shadow);
+  }
+  .checkCard h3 { margin: 0 0 10px; font-size: 14.5px; font-weight: 700; display: flex; justify-content: space-between; }
+  .checkItem { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13.5px; }
+  .checkItem .tick { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; background: var(--chip-bg); color: var(--ink-3); flex: none; }
+  .checkItem.done .tick { background: var(--green-soft); color: var(--green); }
+  .checkItem.done { color: var(--ink-3); text-decoration: line-through; }
+  .checkItem a { font-weight: 600; }
+
+  @media (max-width: 720px) {
+    main { padding: 20px 14px 70px; }
+    header { padding: 12px 14px; }
+    .hero h2 { font-size: 22px; }
+    .stat { min-width: 86px; padding: 10px 14px; }
+    .stat b { font-size: 20px; }
+    td, th { padding: 10px 10px; }
+  }
+
+  /* ---------- profile cards ---------- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-top: 6px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow); }
+  .card h2 { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin: 0 0 6px; display: flex; justify-content: space-between; align-items: baseline; }
+  .card .muted { margin: 0 0 12px; }
+  .itemRow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .itemRow input[type="text"] { flex: 1; min-width: 130px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+  .itemRow input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  .itemRow textarea {
+    width: 100%; min-height: 76px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 12.5px; font-family: inherit; line-height: 1.5;
+  }
+  .itemRow textarea:focus { outline: none; border-color: var(--accent); }
+  .itemRow .name { font-weight: 650; font-size: 13px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span class="logo"></span>Job Applier</h1>
+    <button class="tab active" data-tab="today">Today</button>
+    <button class="tab" data-tab="feed">Feed</button>
+    <button class="tab" data-tab="calendar">Calendar</button>
+    <button class="tab" data-tab="tracker">Applications</button>
+    <button class="tab" data-tab="profile">Profile</button>
+    <input type="search" id="globalSearch" placeholder="🔍 Search jobs…  ( / )"
+      style="margin-left:auto;width:210px;padding:7px 12px;border:1px solid var(--line);border-radius:10px;font:12.5px inherit;background:var(--surface);color:var(--ink);outline:none">
+    <span id="feedMeta"></span>
+    <button class="tab" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode" style="font-size:15px;padding:5px 10px">🌙</button>
+  </header>
+
+  <main>
+    <section id="today" style="display:none">
+      <div class="hero">
+        <h2 id="greeting">Good morning ☀️</h2>
+        <div class="muted" id="heroDate"></div>
+        <div id="heroPick" style="margin-top:8px;font-size:14px"></div>
+      </div>
+      <div class="stats" id="todayStats"></div>
+      <div id="checklist"></div>
+      <div id="todayPending" style="margin-top:16px"></div>
+      <div id="actions"></div>
+
+      <h3 class="secHead" id="freshHead">🔥 Fresh</h3>
+      <p class="secSub">Posted in the last 48 hours — apply now while a human still reads it.</p>
+      <div id="freshTable"></div>
+
+      <h3 class="secHead" id="backlogHead">📦 Backlog</h3>
+      <p class="secSub">3–21 days old. Still very much worth a shot.</p>
+      <div id="backlogTable"></div>
+
+      <h3 class="secHead" id="cookedHead">💀 Cooked</h3>
+      <p class="secSub">21+ days old. You can still shoot your shot, but it's highkey cooked.</p>
+      <div id="cookedTable"></div>
+    </section>
+
+    <section id="feed">
+      <div id="pending"></div>
+      <div class="filters">
+        <button class="primary" id="refresh">Refresh feed</button>
+        <button class="ghost" id="importBtn">📥 Import</button>
+        <input type="text" id="fSearch" placeholder="Search role or company…">
+        <input type="text" id="fLocation" placeholder="Location contains…">
+        <label>≤ <input type="number" id="fDays" min="1" placeholder="∞"> days</label>
+        <select id="fSort">
+          <option value="age">Sort: newest</option>
+          <option value="match">Sort: best match</option>
+        </select>
+        <label><input type="checkbox" id="fHideClosed" checked> hide closed</label>
+        <label><input type="checkbox" id="fHideTracked"> hide tracked</label>
+        <label title="Greenhouse / Lever / Ashby — the boards where autofill does ~everything"><input type="checkbox" id="fEasyOnly"> ⚡ easy-apply only</label>
+        <label title="Jobs you've hidden"><input type="checkbox" id="fShowHidden"> 🙈 hidden (<span id="hiddenCount">0</span>)</label>
+      </div>
+      <div class="chips" id="fCats"><span class="lbl">Category</span></div>
+      <div class="chips" id="fLocs"><span class="lbl">Location</span></div>
+      <div class="chips" id="fSources"><span class="lbl">Sources</span></div>
+      <div id="feedTable"></div>
+    </section>
+
+    <section id="calendar" style="display:none">
+      <div class="filters">
+        <button class="ghost" id="calPrev">←</button>
+        <b id="calTitle" style="min-width:170px;text-align:center;font-size:15px"></b>
+        <button class="ghost" id="calNext">→</button>
+        <span class="muted" style="margin-left:14px">
+          <span class="dot" style="background:var(--accent)"></span> posted &nbsp;&nbsp;
+          <span class="dot" style="background:var(--green)"></span> you applied
+        </span>
+      </div>
+      <div id="calGrid"></div>
+      <div id="calDay"></div>
+    </section>
+
+    <section id="tracker" style="display:none">
+      <div class="stats" id="trackerStats"></div>
+      <div class="filters" style="margin-top:16px">
+        <input type="text" id="tSearch" placeholder="Search my applications…">
+        <select id="tStatus"><option value="">all statuses</option></select>
+        <label><input type="checkbox" id="tReferralsOnly"> referrals only</label>
+        <span style="margin-left:auto; display:flex; gap:8px">
+          <button class="ghost" id="copySheets">📋 Copy for Sheets</button>
+          <button class="ghost" id="exportCsv">Export CSV</button>
+        </span>
+      </div>
+      <div id="trackerTable"></div>
+      <p class="muted" style="margin-top:12px">"Copy for Sheets" puts the whole tracker on your clipboard and opens a blank
+      Google Sheet — just paste (⌘V). Statuses: saved → filled → applied → OA → interview → offer / rejected / ghosted.</p>
+    </section>
+
+    <section id="profile" style="display:none">
+      <div class="stats" id="profileStats"></div>
+
+      <div class="cards">
+        <div class="card">
+          <h2>Me <a class="muted" href="#" id="editProfile" style="font-weight:500;font-size:12px">edit JSON →</a></h2>
+          <div id="profileCard" class="muted">No profile yet.</div>
+        </div>
+
+        <div class="card">
+          <h2>Resumes</h2>
+          <p class="muted">Upload several and note what each is for — the popup lets you pick which
+          one to attach, and the AI mentions it when drafting answers.</p>
+          <div id="resumeList"></div>
+          <input type="file" id="resumeUpload" accept=".pdf,.doc,.docx" style="margin-top:10px">
+          <div style="margin-top:12px">
+            <button class="ghost" id="reviewResume">🧾 Brutal review of my master resume</button>
+            <span class="muted" id="reviewStatus"></span>
+          </div>
+          <div id="reviewOut" style="margin-top:8px"></div>
+        </div>
+
+        <div class="card">
+          <h2>Answer templates</h2>
+          <p class="muted">Stock answers the AI tailors per job ("Why us?", "Tell me about a project",
+          cover letter…). Write them once, in your voice.</p>
+          <div id="templateList"></div>
+          <button class="ghost" id="addTemplate">＋ Add template</button>
+        </div>
+
+        <div class="card">
+          <h2>LinkedIn searches</h2>
+          <p class="muted">Each search is pulled into the feed on refresh (top ~25 results per search,
+          via LinkedIn's public guest listing — no login needed).</p>
+          <div id="liList"></div>
+          <button class="ghost" id="addLi">＋ Add search</button>
+        </div>
+
+        <div class="card">
+          <h2>📥 Inbox monitor (Jobright &amp; job alerts)</h2>
+          <p class="muted">Reads job-alert emails from your Gmail <b>in the background</b> and auto-adds
+          the postings to your feed &amp; tracker — no opening, no pasting. One-time setup:</p>
+          <ol class="muted" style="margin:0 0 12px;padding-left:20px;line-height:1.7">
+            <li><a href="https://console.cloud.google.com/projectcreate" target="_blank">Create a Google Cloud project</a> (free), then <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank">enable the Gmail API</a>.</li>
+            <li>OAuth consent screen → <b>External</b> → add your own email as a <b>Test user</b>.</li>
+            <li>Credentials → Create <b>OAuth client ID</b> → type <b>Web application</b> → add this Authorized redirect URI:
+              <code id="redirectUri" style="user-select:all">loading…</code> <button class="ghost" id="copyRedirect" style="padding:2px 8px">copy</button></li>
+            <li>Paste the <b>Client ID</b> <i>and</i> <b>Client secret</b> (both shown when you create the client) here:</li>
+          </ol>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="gmailClientId" placeholder="Client ID — …apps.googleusercontent.com" style="flex:1;min-width:220px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:var(--surface);color:var(--ink)">
+            <input type="text" id="gmailClientSecret" placeholder="Client secret — GOCSPX-…" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:var(--surface);color:var(--ink)">
+            <button class="primary" id="gmailSaveConnect">Connect &amp; sync</button>
+          </div>
+          <p class="muted" id="gmailStatus" style="margin-top:10px"></p>
+        </div>
+
+        <div class="card">
+          <h2>Company watchlist</h2>
+          <p class="muted">Dream companies, watched directly on their own boards —
+          postings land here the moment they go up, days before aggregator lists.
+          Greenhouse/Lever: slug from the careers URL (<code>boards.greenhouse.io/<b>stripe</b></code>).
+          Amazon: slug is the search query. Eightfold (Netflix &amp; co):
+          <code>host|domain</code>. Google/Meta/Apple have no public board API —
+          they're covered by your LinkedIn searches instead.</p>
+          <div id="watchList"></div>
+          <button class="ghost" id="addWatch">＋ Watch a company</button>
+        </div>
+
+        <div class="card">
+          <h2>Applications per week</h2>
+          <p class="muted">Consistency beats bursts. Aim for a steady bar.</p>
+          <div id="insightsChart" style="overflow-x:auto"></div>
+        </div>
+
+        <div class="card">
+          <h2>Your funnel</h2>
+          <p class="muted">Where applications go — and where they die.</p>
+          <div id="insightsFunnel"></div>
+        </div>
+
+        <div class="card">
+          <h2>What's actually working</h2>
+          <p class="muted">Response rates by source and by resume — double down on what converts.</p>
+          <div id="insightsSources"></div>
+        </div>
+
+        <div class="card">
+          <h2>Your data</h2>
+          <p class="muted">Everything lives in this browser's extension storage — removing the
+          extension deletes it. Back up regularly.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+            <button class="ghost" id="backupBtn">⬇ Back up everything</button>
+            <button class="ghost" id="restoreBtn">⬆ Restore from backup</button>
+            <input type="file" id="restoreFile" accept=".json" style="display:none">
+            <span class="muted" id="backupInfo"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+  <div id="modalWrap" style="display:none">
+    <div id="modalBack"></div>
+    <div id="modal"></div>
+  </div>
+
+  <script src="parser.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
