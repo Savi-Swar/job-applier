@@ -1,4 +1,6 @@
-# Job Applier (personal Chrome extension)
+# Job Applier
+
+A Chrome extension for running a job search like a pipeline.
 
 Autofills job application forms from a saved profile, attaches your resume, and
 drafts answers to free-text questions ("Why do you want to work here?") with the
@@ -6,27 +8,26 @@ free Gemini API. You review everything and click submit yourself.
 
 Also includes a **dashboard** (popup → "Dashboard: feed & tracker") with five tabs:
 
-- **Today** (home) — "Good morning, Savitur ☀️" briefing: fresh postings from the
+- **Today** (home) — a morning briefing: fresh postings from the
   last 48h (apply early — that's when humans read applications), a 3–21 day
   backlog section, a 💀 cooked section, and week/total/streak stats. A Chrome
   notification fires **daily at 8am** with the fresh count; clicking it opens
   this tab. **⚡ Needs attention** generates concrete follow-up actions from
-  your pipeline: 7/14-day silence nudges, 25-day "mark ghosted", unconfirmed
+  the pipeline: 7/14-day silence nudges, 25-day "mark ghosted", unconfirmed
   fills, stale saves, referral reminders, and upcoming next steps — each with
   quick-action buttons and dismissal.
 - **Match scoring** — every posting gets a personalized 0–100 fit score
-  (hover for reasons): your skills mentioned in the role, freshness, salary
-  listed, hard authorization conflicts (needs-sponsorship vs 🛂 postings,
-  citizenship requirements) which sink a job to the bottom, plus your own
-  history (companies that responded to you before get a boost; ones that
-  passed on you get flagged). Feed sorts best-match by default; Today always.
-- **Company watchlist** — watch dream companies' own Greenhouse/Lever boards
+  (hover for reasons): profile skills mentioned in the role, freshness, salary
+  listed, work-authorization mismatches between the profile and the posting, which
+  sink a job to the bottom, plus response history (companies that replied
+  before get a boost). Feed sorts best-match by default; Today always.
+- **Company watchlist** — watch target companies' own Greenhouse/Lever boards
   directly via their public APIs (Profile tab; slug from the careers URL).
   Early-career postings land in the feed the moment they go up.
 - **AI writer suite** — on any job's ⓘ detail page: 🤝 referral finder
   (LinkedIn people-search links + 3 drafted outreach messages), ✉️ follow-up
   emails (timed to days-of-silence, one click from the action cards),
-  🎯 resume tailoring from your master resume (with a "could NOT include
+  🎯 resume tailoring from a master resume (with a "could NOT include
   truthfully" honesty list), 📄 a full cover letter, and 📚 a per-job interview
   prep sheet with LeetCode/Glassdoor/Reddit research links. AI answers also
   build an **answer memory** so drafts get more consistent over time.
