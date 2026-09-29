@@ -29,10 +29,22 @@ async function ensureAlarm() {
     chrome.alarms.create("inboxsync", { delayInMinutes: 2, periodInMinutes: 30 });
   }
 }
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
   rememberLoadedCode(); ensureAlarm();
+  await migrateWatchlist(); // before the first refresh, so new boards are in it
   gmailSync(false).catch(() => {}); refreshFeedInBackground();
 });
+
+// big tech + quant boards: add any default the watchlist doesn't have yet
+// (keeps your own entries). Also run by the dashboard; the flag makes it once.
+async function migrateWatchlist() {
+  const { watchlistV2, watchlist } = await chrome.storage.local.get(["watchlistV2", "watchlist"]);
+  if (watchlistV2) return;
+  const wl = watchlist || [];
+  const have = new Set(wl.map((w) => (w.ats || "greenhouse") + ":" + (w.slug || "").toLowerCase()));
+  const add = DEFAULT_WATCHLIST.filter((w) => !have.has(w.ats + ":" + w.slug.toLowerCase()));
+  await chrome.storage.local.set({ watchlist: [...add.map((w) => ({ ...w })), ...wl], watchlistV2: true });
+}
 chrome.runtime.onStartup.addListener(() => { ensureAlarm(); gmailSync(false).catch(() => {}); });
 
 // hourly feed refresh (+ on demand from the dashboard); one at a time

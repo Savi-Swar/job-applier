@@ -198,6 +198,13 @@ const TIER_BASE = { "S+": 88, S: 82, A: 72, "A-": 64, "": 45 };
 // roles that aren't the target (SWE / quant / ML) even at a great company
 const OFF_TARGET = /\b(it support|help ?desk|technicians?|data center tech\w*|critical environment|sales|account (executive|manager)s?|marketing|recruit\w*|human resources|hr|legal|counsel|audit\w*|accounting|tax|payroll|supply chain|procurement|facilities|construction|customer (success|support|service)|customer and partner|partner solutions|solutions (engineer|architect)\w*|sales engineer\w*|data cent(er|re)|business development|communications|public policy|administrative|office|real estate|warehouse|logistics|mechanical|civil|chemical|nurs\w+|clinical)\b/i;
 
+// postings entirely outside the US (every listed location foreign) sink
+const NON_US_RE = /\b(canada|united kingdom|uk|england|london|ireland|dublin|india|bangalore|bengaluru|hyderabad|germany|munich|berlin|france|paris|china|shanghai|beijing|shenzhen|japan|tokyo|singapore|australia|sydney|melbourne|netherlands|amsterdam|switzerland|zurich|israel|tel aviv|mexico|brazil|poland|spain|italy|sweden|hong kong|korea|seoul|taiwan|taipei|toronto|vancouver|montreal|ottawa|waterloo|cambridge, uk|belgium|denmark|austria|romania|vietnam|philippines|argentina|colombia|chile)\b|,\s*(ON|BC|QC|AB|NS|MB)\b/i;
+function allOutsideUS(location) {
+  const parts = String(location || "").split(/\s*[·;|]\s*/).filter(Boolean);
+  return parts.length > 0 && parts.every((p) => NON_US_RE.test(p) && !/\b(usa|united states|remote in us)\b/i.test(p));
+}
+
 // S+ … F on a 0–100 score
 const GRADE_CUTS = [[96, "S+"], [90, "S"], [85, "A+"], [80, "A"], [75, "A-"], [70, "B+"], [65, "B"], [60, "B-"],
   [55, "C+"], [50, "C"], [45, "C-"], [35, "D"]];
@@ -251,6 +258,7 @@ function scoreJob(job, profile, history) {
     else { score -= 3; reasons.push("US citizenship required"); }
   }
   if (job.salary) { score += 1; reasons.push("salary listed"); }
+  if (allOutsideUS(job.location)) { score -= 40; reasons.push("outside the US"); }
 
   score = Math.max(0, Math.min(100, Math.round(score)));
   return { score, grade: gradeFor(score), tier, reasons };
