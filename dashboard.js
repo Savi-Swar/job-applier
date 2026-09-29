@@ -328,6 +328,7 @@ function jobsTableHtml(jobs, tracker, hidden = {}) {
       <td style="white-space:nowrap">
         <button class="ghost details" title="Details" aria-label="Job details">ⓘ</button>
         ${j.link ? `<a class="applyLink" href="${esc(j.link)}" target="_blank" rel="noreferrer">${isEasyApply(j.link) ? "⚡ " : ""}apply ↗</a>` : ""}
+        ${j.link && !hid ? ` <button class="applyHide" title="Open the posting, mark it applied in your tracker, and hide it from the feed">✓ apply &amp; hide</button>` : ""}
         ${j.link && !tracked ? ` <button class="ghost save">＋</button>` : ""}
         ${hid
           ? ` <button class="ghost unhide" title="Bring it back" aria-label="Unhide job">↩ unhide</button>`
@@ -353,6 +354,21 @@ function wireJobRows(box, jobs) {
       render();
     });
     tr.querySelector("button.details")?.addEventListener("click", () => openDetail(j));
+    // one click: open the posting, log it as applied, get it out of the feed
+    tr.querySelector("button.applyHide")?.addEventListener("click", async () => {
+      chrome.tabs.create({ url: j.link, active: true });
+      await upsertTracker(normalizeUrl(j.link), {
+        title: j.role, company: j.company, location: j.location,
+        category: j.category, salary: j.salary, source: j.source || "",
+        status: "applied", appliedAt: Date.now(),
+      });
+      const { hiddenJobs = {}, pendingApply = {} } = await chrome.storage.local.get(["hiddenJobs", "pendingApply"]);
+      hiddenJobs[jobKey(j)] = { ts: Date.now(), company: j.company, role: j.role, applied: true };
+      delete pendingApply[normalizeUrl(j.link)]; // no "did you apply?" card needed
+      await chrome.storage.local.set({ hiddenJobs, pendingApply });
+      toast(`🎉 Applied to ${j.company} — tracked & hidden (undo in 🙈 hidden)`);
+      render();
+    });
     tr.querySelector("button.hideJob")?.addEventListener("click", async () => {
       const { hiddenJobs = {} } = await chrome.storage.local.get("hiddenJobs");
       hiddenJobs[jobKey(j)] = { ts: Date.now(), company: j.company, role: j.role };
