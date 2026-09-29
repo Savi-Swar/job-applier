@@ -74,17 +74,25 @@ async function fetchSimplify() {
 // ---------- company boards ----------
 
 // Remember when we first saw each posting, for boards that don't expose a
-// posted date (Meta) — so "fresh" still means fresh.
+// posted date (Meta). Jobs already up the first time a source is fetched get
+// no date (unknown age) — only ones that appear later count as fresh.
 async function firstSeenDays(source, ids) {
   const { firstSeen = {} } = await chrome.storage.local.get("firstSeen");
   const now = Date.now();
+  const baseline = !firstSeen["__baseline:" + source];
+  if (baseline) {
+    firstSeen["__baseline:" + source] = now;
+    // ids stamped before baselines existed were just "first fetch" — unknown age
+    for (const k of Object.keys(firstSeen)) if (k.startsWith(source + ":")) firstSeen[k] = -1;
+  }
   const out = {};
   for (const id of ids) {
     const k = source + ":" + id;
-    if (!firstSeen[k]) firstSeen[k] = now;
-    out[id] = daysSince(firstSeen[k]);
+    if (!firstSeen[k]) firstSeen[k] = baseline ? -1 : now; // -1 = was already up
+    out[id] = firstSeen[k] > 0 ? daysSince(firstSeen[k]) : null;
   }
-  for (const k of Object.keys(firstSeen)) if (now - firstSeen[k] > 120 * 864e5) delete firstSeen[k];
+  for (const k of Object.keys(firstSeen))
+    if (!k.startsWith("__baseline:") && firstSeen[k] > 0 && now - firstSeen[k] > 120 * 864e5) delete firstSeen[k];
   await chrome.storage.local.set({ firstSeen });
   return out;
 }

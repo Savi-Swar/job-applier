@@ -787,10 +787,12 @@ function dedupeJobs(lists) {
   const jobs = [];
   const seenId = new Set();
   const bySig = new Map(); // signature → [{ li, kind, job }]
+  // an aggregator's "posted N min ago" is when IT found the job — the
+  // employer's own date always wins; only fill dates the posting lacks
   const lend = (into, from) => {
     if (!into.salary && from.salary) into.salary = from.salary;
-    if (from.daysOld != null && (into.daysOld == null || from.daysOld < into.daysOld)) into.daysOld = from.daysOld;
-    if (from.postedAt && (!into.postedAt || from.postedAt < into.postedAt)) into.postedAt = from.postedAt;
+    if (into.daysOld == null && from.daysOld != null) into.daysOld = from.daysOld;
+    if (!into.postedAt && from.postedAt && into.daysOld == null) into.postedAt = from.postedAt;
     if (!into.location && from.location) into.location = from.location;
   };
   for (const pass of ["strong", "plain", "agg", "none"]) {
