@@ -28,20 +28,32 @@ if (!window.__jobApplierEmailScan) {
     // htmlToImportText → parseImport), so a Jobright card yields its real
     // company / role / location / salary instead of the whole card glued
     // into the title.
+    const here = location.hash;
+    // data-jap-scanned = the open email is fully handled (lets automation and
+    // debugging confirm nothing was skipped before moving to the next one)
+    const done = (what) => { if (location.hash === here) document.documentElement.dataset.japScanned = here + "|" + what; };
     const roots = messageRoots().filter((r) => /jobright/i.test(r.innerText.slice(0, 60000)));
-    if (!roots.length) return;
+    if (!roots.length) return done("no-jobright");
     const when = emailedAt();
     const jobs = jobLinksOnly(parseImport(roots.map((r) => htmlToImportText(r.innerHTML)).join("\n")))
       .filter((j) => j.role && j.role !== "Imported job" && !processed.has(jobUrlId(j.link)));
-    if (!jobs.length) return;
+    if (!jobs.length) return done("0");
 
     // feed only — tracking is the user's call. The background worker does the
     // write (one serialized writer), so several Gmail tabs importing at once
     // can't overwrite each other's jobs.
     for (const j of jobs) processed.add(jobUrlId(j.link));
-    const res = await chrome.runtime.sendMessage({ type: "IMPORT_JOBS", jobs: jobs.map((j) => ({ ...j, emailedAt: when })) });
+    // the worker can be asleep or busy (hourly feed refresh) — retry with
+    // backoff instead of dropping this email's jobs
+    const payload = { type: "IMPORT_JOBS", jobs: jobs.map((j) => ({ ...j, emailedAt: when })) };
+    let res = null;
+    for (let attempt = 0; attempt < 6 && !res?.ok; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
+      res = await chrome.runtime.sendMessage(payload).catch(() => null);
+    }
     if (res?.ok && (res.added || res.fixed)) banner(res.added, res.fixed);
-    else if (!res?.ok) for (const j of jobs) processed.delete(jobUrlId(j.link)); // retry on next scan
+    if (res?.ok) done(String(res.added || 0));
+    else for (const j of jobs) processed.delete(jobUrlId(j.link)); // next scan tries again
   }
 
   function banner(n, fixed = 0) {
