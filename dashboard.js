@@ -322,23 +322,20 @@ function jobsTableHtml(jobs, tracker, hidden = {}) {
     const hid = !!hidden[jobKey(j)];
     return `<tr data-i="${i}">
       <td>${fitBadge(j._fit)}</td>
-      <td><b>${esc(j.company)}</b>${j.closed ? '<span class="badge closed">closed</span>' : ""}${tracked ? `<span class="badge applied">${esc(tracked.status)}</span>` : ""}</td>
-      <td title="${esc(j.role)}">${esc(cleanRole(j.role, j.location))}${j.salary ? `<div class="muted">${esc(j.salary)}</div>` : ""}${j.noSponsorship ? '<span class="badge" title="No visa sponsorship">🛂</span>' : ""}${j.citizenOnly ? '<span class="badge" title="US citizenship required">🇺🇸</span>' : ""}</td>
+      <td class="openDetail" title="Details"><b>${esc(j.company)}</b>${j.closed ? '<span class="badge closed">closed</span>' : ""}${tracked ? `<span class="badge applied">${esc(tracked.status)}</span>` : ""}</td>
+      <td class="openDetail" title="${esc(j.role)} — click for details">${esc(cleanRole(j.role, j.location))}${j.salary ? `<div class="muted">${esc(j.salary)}</div>` : ""}${j.noSponsorship ? '<span class="badge" title="No visa sponsorship">🛂</span>' : ""}${j.citizenOnly ? '<span class="badge" title="US citizenship required">🇺🇸</span>' : ""}</td>
       <td><span class="${catClass(j.category)}">${esc(j.category)}</span></td>
       <td>${esc(j.location)}</td>
       <td class="muted mono" style="white-space:nowrap">${ageLabel(j.daysOld)}${j.daysOld > 21 ? ' <span class="badge cooked" title="21+ days old — highkey cooked">💀</span>' : ""}</td>
       <td class="muted">${esc(SRC_NAME[j.source] || j.source || "")}</td>
-      <td style="white-space:nowrap">
-        <button class="ghost details" title="Details" aria-label="Job details">ⓘ</button>
-        ${!j.link ? "" : PENDING[normalizeUrl(j.link)]
-          ? `<span class="didApply">Did you apply? <button class="yesApplied">✓ yes</button><button class="ghost notApplied">no</button></span>`
-          : `<a class="applyLink" href="${esc(j.link)}" target="_blank" rel="noreferrer">${isEasyApply(j.link) ? "⚡ " : ""}apply ↗</a>`}
-        ${!j.link ? "" : tracked?.status && tracked.status !== "saved" && tracked.status !== "filled"
-          ? ` <span class="appliedMark" title="In your tracker as ${esc(tracked.status)}">✓ ${esc(tracked.status)}</span>`
-          : PENDING[normalizeUrl(j.link)] ? "" : ` <button class="markApplied" title="Mark as applied (logs it in your tracker)">✓ applied</button>`}
+      <td class="rowActions">
+        ${j.link ? `<a class="act go" href="${esc(j.link)}" target="_blank" rel="noreferrer" title="Open the posting">Go ↗</a>` : ""}
+        ${!j.link ? "" : tracked?.status && !["saved", "filled"].includes(tracked.status)
+          ? `<span class="act done" title="In your tracker as ${esc(tracked.status)}">✓ ${esc(tracked.status === "applied" ? "Applied" : tracked.status)}</span>`
+          : `<button class="act applied${PENDING[normalizeUrl(j.link)] ? " ask" : ""}" title="${PENDING[normalizeUrl(j.link)] ? "Did you apply? Click to log it" : "Mark as applied"}">✓ Applied${PENDING[normalizeUrl(j.link)] ? "?" : ""}</button>`}
         ${hid
-          ? ` <button class="ghost unhide" title="Bring it back" aria-label="Unhide job">↩ unhide</button>`
-          : ` <button class="ghost hideJob" title="Hide — not interested" aria-label="Hide job">🙈 hide</button>`}
+          ? `<button class="act del unhide" title="Bring it back">↩ Restore</button>`
+          : `<button class="act del hideJob" title="Remove from your feed (restore from 🙈 hidden)">✕ Delete</button>`}
       </td>
     </tr>`;
   });
@@ -348,8 +345,8 @@ function jobsTableHtml(jobs, tracker, hidden = {}) {
 function wireJobRows(box, jobs) {
   box.querySelectorAll("tr[data-i]").forEach((tr) => {
     const j = jobs[+tr.dataset.i];
-    tr.querySelector("a.applyLink")?.addEventListener("click", () => {
-      // tab opens; this row turns into "Did you apply? ✓ yes / no"
+    tr.querySelector("a.go")?.addEventListener("click", () => {
+      // tab opens; the ✓ Applied button turns into "✓ Applied?" to ask
       addPending(j).then(renderPending).then(render);
     });
     tr.querySelector("button.save")?.addEventListener("click", async () => {
@@ -360,7 +357,7 @@ function wireJobRows(box, jobs) {
       toast(`Saved ${j.company} to your tracker`);
       render();
     });
-    tr.querySelector("button.details")?.addEventListener("click", () => openDetail(j));
+    tr.querySelectorAll(".openDetail").forEach((td) => td.addEventListener("click", () => openDetail(j)));
     const markApplied = async () => {
       await upsertTracker(normalizeUrl(j.link), {
         title: j.role, company: j.company, location: j.location,
@@ -374,13 +371,7 @@ function wireJobRows(box, jobs) {
       await renderPending();
       render();
     };
-    tr.querySelector("button.markApplied")?.addEventListener("click", markApplied);
-    tr.querySelector("button.yesApplied")?.addEventListener("click", markApplied);
-    tr.querySelector("button.notApplied")?.addEventListener("click", async () => {
-      await resolvePending(normalizeUrl(j.link), null); // just clear the question
-      await renderPending();
-      render();
-    });
+    tr.querySelector("button.applied")?.addEventListener("click", markApplied);
     tr.querySelector("button.hideJob")?.addEventListener("click", async () => {
       const { hiddenJobs = {} } = await chrome.storage.local.get("hiddenJobs");
       hiddenJobs[jobKey(j)] = { ts: Date.now(), company: j.company, role: j.role };

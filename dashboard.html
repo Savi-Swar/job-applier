@@ -187,14 +187,21 @@
     font-size: 12.5px; font-weight: 550; color: var(--ink-2); cursor: pointer; transition: all .15s; white-space: nowrap;
   }
   button.ghost:hover { border-color: var(--accent); color: var(--accent); }
-  button.markApplied, button.yesApplied {
-    padding: 4px 10px; border-radius: 8px; border: 1px solid var(--green); cursor: pointer;
-    background: var(--green-soft); color: var(--green); font-size: 12px; font-weight: 650; white-space: nowrap;
+  .rowActions { white-space: nowrap; }
+  .act {
+    display: inline-block; min-width: 74px; text-align: center; margin-left: 4px;
+    padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 650; line-height: 1.2;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+    cursor: pointer; text-decoration: none; font-family: inherit;
   }
-  button.markApplied:hover, button.yesApplied:hover { background: var(--green); color: var(--green-soft); }
-  .appliedMark { color: var(--green); font-size: 12px; font-weight: 650; white-space: nowrap; }
-  .didApply { font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-  .didApply button { margin-left: 4px; padding: 3px 8px; font-size: 12px; }
+  .act.go { border-color: var(--accent); color: var(--accent); }
+  .act.go:hover { background: var(--accent); color: var(--surface); }
+  .act.applied { border-color: var(--green); color: var(--green); background: var(--green-soft); }
+  .act.applied:hover, .act.applied.ask { background: var(--green); color: var(--green-soft); }
+  .act.done { border-color: transparent; color: var(--green); background: transparent; cursor: default; }
+  .act.del:hover { border-color: var(--red); color: var(--red); }
+  td.openDetail { cursor: pointer; }
+  td.openDetail:hover b, td.openDetail:hover { text-decoration: underline; text-underline-offset: 2px; }
 
   /* ---------- tables ---------- */
   .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
