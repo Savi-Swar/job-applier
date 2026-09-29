@@ -160,7 +160,7 @@ async function restoreFilters() {
   document.getElementById("fLocation").value = f.rawLocation || "";
   document.getElementById("fDays").value = f.rawDays || "";
   document.getElementById("fSort").value = f.sort || "age";
-  document.getElementById("fMinGrade").value = f.minGrade ?? "A-";
+  document.getElementById("fMinGrade").value = f.minGrade ?? "";
   document.getElementById("fHideClosed").checked = f.hideClosed !== false;
   document.getElementById("fHideTracked").checked = !!f.hideTracked;
   document.getElementById("fEasyOnly").checked = !!f.easyOnly;
@@ -967,13 +967,17 @@ async function renderFeed() {
     (nImported ? ` · ${nImported} imported` : "") +
     (feedCache?.errors?.length ? ` · errors: ${feedCache.errors.join("; ")}` : "");
 
-  const shown = jobs.slice(0, 500);
+  // big feeds render in pages of 500 so the tab stays snappy; "show all" lifts it
+  const cap = FEED_SHOW_ALL ? jobs.length : 500;
+  const shown = jobs.slice(0, cap);
   box.innerHTML = shown.length
     ? jobsTableHtml(shown, tracker, hiddenJobs) +
-      (jobs.length > 500 ? `<div class="empty">…and ${jobs.length - 500} more — narrow the filters.</div>` : "")
+      (jobs.length > cap ? `<div class="empty"><button class="primary" id="showAllJobs">Show all ${jobs.length} jobs</button></div>` : "")
     : `<div class="empty">${f.showHidden ? "Nothing hidden yet — the 🙈 button on any row puts it here." : "Nothing matches these filters."}</div>`;
   if (shown.length) wireJobRows(box, shown);
+  document.getElementById("showAllJobs")?.addEventListener("click", () => { FEED_SHOW_ALL = true; renderFeed(); });
 }
+let FEED_SHOW_ALL = false;
 
 // ---------- tracker (spreadsheet grid) ----------
 
@@ -1771,6 +1775,17 @@ async function migrate() {
     if (a || b) {
       if (b) await chrome.storage.local.set({ tracker: tr });
       toast(`Merged ${a + b} duplicate job${a + b > 1 ? "s" : ""}`);
+    }
+  }
+
+  // one-time: open the feed back up — clear the grade floor and any narrowing
+  // filters so every job shows (sorted best match first)
+  {
+    const { feedFilters: ff } = await chrome.storage.local.get("feedFilters");
+    if (ff && !ff.showAllV1) {
+      Object.assign(ff, { minGrade: "", rawDays: "", days: null, rawSearch: "", search: "", rawLocation: "", location: "",
+        hideTracked: false, easyOnly: false, locs: [], cats: CATEGORIES.slice(), knownSources: [], sort: "match", showAllV1: true });
+      await chrome.storage.local.set({ feedFilters: ff });
     }
   }
 
