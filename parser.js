@@ -645,7 +645,7 @@ function parseImport(text) {
       const agoM = recent.join(" | ").match(/(\d+)\s*(minute|hour|day|week)s?\s+ago/i);
       const agoMin = agoM ? +agoM[1] * { minute: 1, hour: 60, day: 1440, week: 10080 }[agoM[2].toLowerCase()] : null;
       out.push({
-        company: company.slice(0, 60), role: (role || "Imported job").slice(0, 120), link: clean,
+        company: company.slice(0, 60), role: (role || "Imported job").slice(0, 200), link: clean,
         location: location.slice(0, 60), salary: (salLine || "").slice(0, 40), agoMin,
       });
     }
@@ -746,7 +746,10 @@ function htmlToImportText(html) {
 // Early Stage95%Backend…"). Rescans overwrite these instead of keeping them.
 function isMangledImport(j) {
   const co = (j && j.company) || "", role = (j && j.role) || "";
-  return /jobright|instant alert/i.test(co) || /\d%|·|\d+ (minute|hour|day)s? ag|referrals?\d|\$\d/i.test(role) || role.length > 110;
+  // (no length rule: real long titles — "Campus Undergraduate Summer Internship
+  // Program - 2027 Software Engineer, …" — are legit; glued cards always
+  // carry the "·" industry separator or the "NN%" match score)
+  return /jobright|instant alert/i.test(co) || /\d%|·|\d+ (minute|hour|day)s? ag|referrals?\d/i.test(role);
 }
 
 // filter parsed entries to real job-posting links only (drops unsubscribe,
