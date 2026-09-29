@@ -47,6 +47,20 @@ async function migrateWatchlist() {
 }
 chrome.runtime.onStartup.addListener(() => { ensureAlarm(); gmailSync(false).catch(() => {}); });
 
+// every write to importedJobs goes through this queue — Gmail tabs and the
+// inbox sync can import concurrently without losing each other's jobs
+let importQueue = Promise.resolve();
+function importJobs(jobs) {
+  const run = importQueue.then(async () => {
+    const { importedJobs = {} } = await chrome.storage.local.get("importedJobs");
+    const r = mergeImports(importedJobs, jobs);
+    if (r.added || r.fixed) await chrome.storage.local.set({ importedJobs });
+    return r;
+  });
+  importQueue = run.catch(() => {});
+  return run;
+}
+
 // hourly feed refresh (+ on demand from the dashboard); one at a time
 let feedRefreshing = null;
 function refreshFeedInBackground() {
@@ -156,9 +170,24 @@ const geminiUrl = (model, key) =>
 // Personal-use default. If this folder is ever shared/published, remove this.
 const DEFAULT_API_KEY = "";
 
-const BG_VERSION = 12; // v12 = hourly background feed + big-tech/quant boards — dashboard checks this
+const BG_VERSION = 13; // v12 = hourly background feed + big-tech/quant boards — dashboard checks this
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "DEDUPE_IMPORTS") {
+    const run = importQueue.then(async () => {
+      const { importedJobs = {} } = await chrome.storage.local.get("importedJobs");
+      const merged = dedupeStore(importedJobs, "imported");
+      if (merged) await chrome.storage.local.set({ importedJobs });
+      return merged;
+    });
+    importQueue = run.catch(() => {});
+    run.then((merged) => sendResponse({ ok: true, merged }), (e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg.type === "IMPORT_JOBS") {
+    importJobs(msg.jobs || []).then((r) => sendResponse({ ok: true, ...r }), (e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
   if (msg.type === "REFRESH_FEED") {
     refreshFeedInBackground().then((feedCache) =>
       sendResponse(feedCache ? { ok: true, feedCache } : { ok: false, error: "refresh failed" }));
@@ -340,11 +369,8 @@ async function gmailSync(interactive) {
   if (!listRes.ok) throw new Error(`Gmail API ${listRes.status}`);
   const ids = ((await listRes.json()).messages || []).map((m) => m.id);
 
-  const { syncedEmailIds = [], importedJobs = {} } =
-    await chrome.storage.local.get(["syncedEmailIds", "importedJobs"]);
+  const { syncedEmailIds = [] } = await chrome.storage.local.get("syncedEmailIds");
   const fresh = ids.filter((id) => !syncedEmailIds.includes(id));
-  dedupeStore(importedJobs, "imported");
-  const known = idIndex(importedJobs);
 
   let added = 0, scanned = 0;
   const debugTexts = []; // flattened bodies — dumped to Downloads for parser debugging
@@ -356,38 +382,13 @@ async function gmailSync(interactive) {
     const emailedAt = +msg.internalDate || Date.now();
     debugTexts.push(`===== EMAIL ${id} =====\n` + text.split(/\r?\n/).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n").slice(0, 9000));
     scanned++;
-    for (const j of jobLinksOnly(parseImport(text))) {
-      // email cards always carry a role — a bare "Imported job" here means we
-      // grabbed one of Jobright's own navigation links, not a posting
-      if (!j.role || j.role === "Imported job") continue;
-      // known job (same id under any URL form): heal whatever the old parser
-      // missed (name, location, salary, date) instead of duplicating it
-      const id = jobUrlId(j.link);
-      const url = known.get(id) || normalizeUrl(j.link);
-      const prev = importedJobs[url];
-      if (prev) {
-        if (!prev.company && j.company) prev.company = j.company;
-        if (!prev.location && j.location) prev.location = j.location;
-        if (!prev.salary && j.salary) prev.salary = j.salary;
-        if (!prev.postedAt) { prev.postedAt = emailedAt - (j.agoMin || 0) * 60000; prev.emailedAt = emailedAt; }
-        continue;
-      }
-      // feed only — tracking is the user's call (＋ track / apply flow).
-      // postedAt = when the email arrived minus the card's "N minutes ago".
-      importedJobs[url] = {
-        url, link: j.link, company: j.company, role: j.role,
-        location: j.location || "", salary: j.salary || "",
-        source: "imported", addedAt: Date.now(),
-        postedAt: emailedAt - (j.agoMin || 0) * 60000, emailedAt,
-      };
-      known.set(id, url);
-      added++;
-    }
+    const parsed = jobLinksOnly(parseImport(text)).map((j) => ({ ...j, emailedAt }));
+    added += (await importJobs(parsed)).added;
   }
 
   await chrome.storage.local.set({
     syncedEmailIds: [...syncedEmailIds, ...fresh].slice(-1500), // 3 weeks of alerts is ~400 emails
-    importedJobs, lastGmailSync: Date.now(),
+    lastGmailSync: Date.now(),
   });
   if (debugTexts.length) {
     try {

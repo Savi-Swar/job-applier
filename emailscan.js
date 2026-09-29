@@ -35,39 +35,13 @@ if (!window.__jobApplierEmailScan) {
       .filter((j) => j.role && j.role !== "Imported job" && !processed.has(jobUrlId(j.link)));
     if (!jobs.length) return;
 
-    // feed only — tracking is the user's call (＋ track / apply flow), same as
-    // the Gmail API sync. Dedupe on the job id, not the raw URL, so the same
-    // posting reached through a different link form isn't imported twice.
-    const { importedJobs = {} } = await chrome.storage.local.get("importedJobs");
-    const known = idIndex(importedJobs);
-    let added = 0, fixed = 0;
-    for (const j of jobs) {
-      const id = jobUrlId(j.link);
-      processed.add(id);
-      const postedAt = when - (j.agoMin || 0) * 60000;
-      const prevKey = known.get(id);
-      const prev = prevKey && importedJobs[prevKey];
-      if (prev) {
-        // an earlier bad parse of this job → replace it with the good one
-        if (isMangledImport(prev)) {
-          Object.assign(prev, { company: j.company, role: j.role, location: j.location || "", salary: j.salary || "" });
-          fixed++;
-        }
-        if (!prev.location && j.location) prev.location = j.location;
-        if (!prev.salary && j.salary) prev.salary = j.salary;
-        if (!prev.postedAt || postedAt < prev.postedAt) { prev.postedAt = postedAt; prev.emailedAt = when; }
-        continue;
-      }
-      const url = normalizeUrl(j.link);
-      importedJobs[url] = {
-        url, link: j.link, company: j.company, role: j.role,
-        location: j.location || "", salary: j.salary || "",
-        source: "imported", addedAt: Date.now(), postedAt, emailedAt: when,
-      };
-      known.set(id, url);
-      added++;
-    }
-    if (added || fixed) { await chrome.storage.local.set({ importedJobs }); banner(added, fixed); }
+    // feed only — tracking is the user's call. The background worker does the
+    // write (one serialized writer), so several Gmail tabs importing at once
+    // can't overwrite each other's jobs.
+    for (const j of jobs) processed.add(jobUrlId(j.link));
+    const res = await chrome.runtime.sendMessage({ type: "IMPORT_JOBS", jobs: jobs.map((j) => ({ ...j, emailedAt: when })) });
+    if (res?.ok && (res.added || res.fixed)) banner(res.added, res.fixed);
+    else if (!res?.ok) for (const j of jobs) processed.delete(jobUrlId(j.link)); // retry on next scan
   }
 
   function banner(n, fixed = 0) {

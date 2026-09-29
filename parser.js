@@ -691,6 +691,42 @@ function cleanRole(role, location) {
   return r || String(role).trim();
 }
 
+// Merge freshly parsed email jobs ({company, role, link, location, salary,
+// agoMin, emailedAt}) into the importedJobs store, deduped by job id. Known
+// jobs get healed (bad earlier parse replaced, blanks filled, earliest posted
+// time kept). Returns counts. Callers must serialize writes (background does).
+function mergeImports(importedJobs, jobs) {
+  const known = idIndex(importedJobs);
+  let added = 0, fixed = 0;
+  for (const j of jobs) {
+    if (!j.role || j.role === "Imported job") continue;
+    const id = jobUrlId(j.link);
+    const when = j.emailedAt || Date.now();
+    const postedAt = when - (j.agoMin || 0) * 60000;
+    const prev = known.has(id) && importedJobs[known.get(id)];
+    if (prev) {
+      if (isMangledImport(prev)) {
+        Object.assign(prev, { company: j.company, role: j.role, location: j.location || "", salary: j.salary || "" });
+        fixed++;
+      }
+      if (!prev.company && j.company) prev.company = j.company;
+      if (!prev.location && j.location) prev.location = j.location;
+      if (!prev.salary && j.salary) prev.salary = j.salary;
+      if (!prev.postedAt || postedAt < prev.postedAt) { prev.postedAt = postedAt; prev.emailedAt = when; }
+      continue;
+    }
+    const url = normalizeUrl(j.link);
+    importedJobs[url] = {
+      url, link: j.link, company: j.company, role: j.role,
+      location: j.location || "", salary: j.salary || "",
+      source: "imported", addedAt: Date.now(), postedAt, emailedAt: when,
+    };
+    known.set(id, url);
+    added++;
+  }
+  return { added, fixed };
+}
+
 // Flatten an email's HTML to parseImport-ready text: every <a> becomes
 // "its text  its-url", block ends become newlines — so a Jobright card keeps
 // its line shape (company / industry / NN% / role / location / time ago).

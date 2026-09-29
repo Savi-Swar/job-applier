@@ -1358,7 +1358,7 @@ const STALE_BG_MSG =
 async function bgIsCurrent() {
   try {
     const pong = await chrome.runtime.sendMessage({ type: "PING" });
-    return !!pong && pong.v >= 12; // v12 = hourly background feed + big-tech/quant boards
+    return !!pong && pong.v >= 13; // v13 = serialized email imports
   } catch { return false; }
 }
 
@@ -1505,22 +1505,21 @@ async function runImport() {
   const parsed = parseImport(text);
   if (!parsed.length) { status.textContent = "No job links found in that text."; return; }
 
-  const { importedJobs = {}, tracker = {} } = await chrome.storage.local.get(["importedJobs", "tracker"]);
   const alsoTrack = document.getElementById("impTrack").checked;
-  let added = 0;
-  const known = idIndex(importedJobs);
-  for (const j of parsed) {
-    if (known.has(jobUrlId(j.link))) continue; // same posting already imported
-    const url = normalizeUrl(j.link);
-    known.set(jobUrlId(j.link), url);
-    importedJobs[url] = { url, link: j.link, company: j.company, role: j.role, location: j.location || "", source: "imported", addedAt: Date.now(), daysOld: 0 };
-    added++;
-    if (alsoTrack && !trackedEntry(tracker, j.link)) {
+  // imports go through the background worker (the one writer for importedJobs)
+  const res = await chrome.runtime.sendMessage({ type: "IMPORT_JOBS",
+    jobs: parsed.map((j) => ({ ...j, role: j.role || "Imported job", emailedAt: Date.now() })) }).catch(() => null);
+  const added = res?.added || 0;
+  if (alsoTrack) {
+    const { tracker = {} } = await chrome.storage.local.get("tracker");
+    for (const j of parsed) {
+      if (trackedEntry(tracker, j.link)) continue;
+      const url = normalizeUrl(j.link);
       tracker[url] = { url, title: j.role, company: j.company, location: j.location || "", status: "saved", source: "imported",
         notes: "", addedAt: Date.now(), updatedAt: Date.now() };
     }
+    await chrome.storage.local.set({ tracker });
   }
-  await chrome.storage.local.set({ importedJobs, ...(alsoTrack ? { tracker } : {}) });
   status.innerHTML = `<span style="color:var(--green)">✓ Imported ${added}${alsoTrack ? " (saved to tracker)" : ""}</span>`;
   preview.innerHTML = `<div class="scroll" style="max-height:220px;overflow-y:auto"><table><tbody>${
     parsed.map((j) => `<tr><td><b>${esc(j.company || "—")}</b></td><td>${esc(j.role)}</td><td><a href="${esc(j.link)}" target="_blank">↗</a></td></tr>`).join("")
@@ -1732,8 +1731,10 @@ async function migrate() {
 
   // every load: collapse stored duplicates (same job id under different URLs)
   {
+    // imports are deduped by the background (their single writer); the tracker here
+    const a = (await chrome.runtime.sendMessage({ type: "DEDUPE_IMPORTS" }).catch(() => null))?.merged || 0;
     const { importedJobs: ij = {}, tracker: tr = {} } = await chrome.storage.local.get(["importedJobs", "tracker"]);
-    const a = dedupeStore(ij, "imported"), b = dedupeStore(tr, "tracker");
+    const b = dedupeStore(tr, "tracker");
     // tracker rows saved from a bad email parse: take the clean name/title
     // from the (re-scanned) import of the same job
     const impIdx = idIndex(ij);
@@ -1748,7 +1749,7 @@ async function migrate() {
     }
     if (healed) await chrome.storage.local.set({ tracker: tr });
     if (a || b) {
-      await chrome.storage.local.set({ importedJobs: ij, tracker: tr });
+      if (b) await chrome.storage.local.set({ tracker: tr });
       toast(`Merged ${a + b} duplicate job${a + b > 1 ? "s" : ""}`);
     }
   }
