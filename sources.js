@@ -319,16 +319,40 @@ async function buildEmployerDates(jobs, watchlist) {
       } catch { boardCache[k] = { at: now, jobs: [] }; }
     }));
   }
+  // SIG posts on its own Jibe site (req ids also appear in its iCIMS links)
+  if (jobs.some((j) => /susquehanna|\bsig\b/i.test(j.company || "")) && (!boardCache["jibe:sig"] || now - boardCache["jibe:sig"].at > 6 * 3600e3)) {
+    const sig = [];
+    try {
+      for (let page = 1; page <= 15; page++) {
+        const r = await fetch(`https://careers.sig.com/api/jobs?keywords=intern&page=${page}`);
+        if (!r.ok) break;
+        const rows = ((await r.json()).jobs || []).map((x) => x.data || x);
+        for (const x of rows) sig.push({ id: "icims:sig:" + x.req_id, title: x.title, t: Date.parse(x.posted_date || x.create_date || "") || 0,
+          alt: jobUrlId(`https://careers.sig.com/jobs/${x.slug || x.req_id}`) });
+        if (rows.length < 10) break;
+      }
+    } catch {}
+    boardCache["jibe:sig"] = { at: now, jobs: sig };
+  }
   for (const k of Object.keys(boardCache)) if (now - boardCache[k].at > 7 * 864e5) delete boardCache[k];
   const ed = { byId: {}, byTitle: {} };
+  const titleDates = new Map(); // key → [dates] — a title shared by several reqs is ambiguous
+  const addTitle = (k, t) => { if (!titleDates.has(k)) titleDates.set(k, []); titleDates.get(k).push(t); };
   for (const [k, co] of want) {
     for (const x of boardCache[k]?.jobs || []) {
       if (!x.t) continue;
       ed.byId[x.id] = x.t;
-      const tk = co + "|" + titleKey(x.title);
-      if (!ed.byTitle[tk] || x.t < ed.byTitle[tk]) ed.byTitle[tk] = x.t; // earliest same-title req
+      addTitle(co + "|" + titleKey(x.title), x.t);
     }
   }
+  for (const x of boardCache["jibe:sig"]?.jobs || []) {
+    if (!x.t) continue;
+    ed.byId[x.id] = x.t;
+    if (x.alt) ed.byId[x.alt] = x.t;
+    for (const co of ["susquehanna", "sig"]) addTitle(co + "|" + titleKey(x.title), x.t);
+  }
+  // title → date only when unambiguous (one req, or all same-title reqs within 3 days)
+  for (const [k, ts] of titleDates) if (Math.max(...ts) - Math.min(...ts) <= 3 * 864e5) ed.byTitle[k] = Math.min(...ts);
   await chrome.storage.local.set({ boardCache, employerDates: ed });
   return ed;
 }
