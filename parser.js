@@ -431,6 +431,8 @@ function jobUrlId(link) {
     if (/bamboohr\.com$/.test(host) && (m = path.match(/\/(?:careers|jobs)\/(?:view\.php\?id=)?(\d+)/) || (q("id") && [0, q("id")])))
       return "bamboo:" + tenant + ":" + m[1];
     if (/icims\.com$/.test(host) && (m = path.match(/\/jobs\/(\d{3,})/))) return "icims:" + tenant.replace(/^careers-/, "") + ":" + m[1];
+    // SIG's own careers site uses the same req number as its iCIMS postings
+    if (/^careers\.sig\.com$/.test(host) && (m = path.match(/\/jobs\/(\d{3,})/))) return "icims:sig:" + m[1];
     if (/oraclecloud\.com$/.test(host) && (m = path.match(/\/job\/(\d{3,})/) || (q("jobid") && [0, q("jobid")])))
       return "orc:" + tenant + ":" + m[1];
     if (/taleo\.net$/.test(host) && (q("job") || q("requisition"))) return "taleo:" + tenant + ":" + (q("job") || q("requisition"));
@@ -520,6 +522,7 @@ function jobSignature(company, role) {
     .replace(/\b20\d{2}\b|['’]\d{2}\b/g, " ") // years / '27
     .replace(/\b(software engineer|software developer|swe|sde)\b/g, "swe")
     .replace(/\bintern(ship)?\b/g, "intern")
+    .replace(/\bengineering\b/g, "engineer")
     .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
