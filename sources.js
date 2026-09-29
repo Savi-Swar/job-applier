@@ -26,6 +26,8 @@ function job(source, company, role, location, link, daysOld, extra = {}) {
     source, company, role, location: location || "", link: link ? normalizeUrl(link) : null,
     category: categorize(role, extra.repoCategory || ""), salary: extra.salary || "", daysOld,
     closed: false, noSponsorship: !!extra.noSponsorship, citizenOnly: !!extra.citizenOnly,
+    // where the age comes from: the employer's own posted date, or an estimate
+    dateFrom: daysOld == null ? null : extra.dateFrom || (source === "watch" ? "employer" : source === "linkedin" ? "LinkedIn" : "list"),
   };
 }
 
@@ -65,7 +67,7 @@ async function fetchSimplify() {
     .filter((x) => x.active && x.is_visible !== false && x.url && Date.now() - x.date_posted * 1000 < 60 * 864e5)
     .map((x) => job("simplify", x.company_name, x.title, (x.locations || []).slice(0, 3).join(" · "), x.url,
       daysSince(x.date_posted * 1000), {
-        repoCategory: x.category || "",
+        repoCategory: x.category || "", dateFrom: "SimplifyJobs (when it was listed)",
         noSponsorship: /does not offer sponsorship/i.test(x.sponsorship || ""),
         citizenOnly: /citizenship/i.test(x.sponsorship || ""),
       }));
@@ -123,7 +125,7 @@ async function fetchMeta(w) {
   const early = all.filter((j) => isEarly(j.title));
   const seen = await firstSeenDays("meta", early.map((j) => j.id));
   return early.map((j) => job("watch", "Meta", j.title, (j.locations || []).slice(0, 3).join(" · "),
-    `https://www.metacareers.com/profile/job_details/${j.id}/`, seen[j.id]))
+    `https://www.metacareers.com/profile/job_details/${j.id}/`, seen[j.id], { dateFrom: "first seen on Meta's board" }))
     .filter((j) => (j.location || "").split(" · ").some(isUS));
 }
 
@@ -357,6 +359,9 @@ async function buildEmployerDates(jobs, watchlist) {
   return ed;
 }
 
+const SRC_LABEL = { speedyapply: "SpeedyApply list (when it was listed)", vanshb03: "Vansh list (when it was listed)",
+  zshah101: "zshah list (when it was listed)", sndsh404: "sndsh list (when it was listed)" };
+
 // Fetch every source, dedupe, and store the feed. Runs hourly from the
 // background worker and on demand from the dashboard's Refresh button.
 async function refreshAllSources() {
@@ -386,6 +391,7 @@ async function refreshAllSources() {
     for (const j of jobs) {
       const at = employerPostedAt(j, ed);
       if (at) { j.daysOld = Math.max(0, Math.floor((Date.now() - at) / 864e5)); j.dateFrom = "employer"; }
+      else if (j.daysOld != null && !j.dateFrom) j.dateFrom = SRC_LABEL[j.source] || "list";
     }
   } catch (e) { errors.push("employer dates: " + (e.message || e)); }
   const feedCache = { fetchedAt: Date.now(), jobs, errors, perSource };

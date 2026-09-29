@@ -21,7 +21,8 @@
   const history = { responded: new Set(), rejected: new Set() };
   const imp = [...imported.filter((j) => !isMangledImport(j)).map((j) => ({ ...j, source: "imported",
     category: j.category || categorize(j.role, ""),
-    daysOld: trueDaysOld({ ...j, daysOld: j.postedAt ? Math.floor((Date.now() - j.postedAt) / 864e5) : 0 }, st.employerDates) }))];
+    daysOld: trueDaysOld({ ...j, daysOld: j.postedAt ? Math.floor((Date.now() - j.postedAt) / 864e5) : 0 }, st.employerDates),
+    dateFrom: employerPostedAt(j, st.employerDates) ? "employer" : "Jobright alert" }))];
   // same merge the dashboard does: imports first, then the fetched feed
   const scored = dedupeJobs([imp, fc.jobs]).map((j) => ({ ...j, _fit: scoreJob(j, st.profile, history) }))
     .sort((a, b) => b._fit.score - a._fit.score);
@@ -56,7 +57,7 @@
   // ?audit=1 → hand every graded job to the local audit receiver (same origin)
   if (/[?&]audit=1/.test(location.search)) {
     const audit = scored.map((j) => ({ company: j.company, role: j.role, link: j.link, id: j.link ? jobUrlId(j.link) : null,
-      daysOld: j.daysOld ?? null, postedAt: j.postedAt || null, source: j.source, grade: j._fit.grade }));
+      daysOld: j.daysOld ?? null, postedAt: j.postedAt || null, source: j.source, grade: j._fit.grade, dateFrom: j.dateFrom || null }));
     await fetch("/__audit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(audit) });
     document.title = "job-applier status ✓ audit sent (" + audit.length + ")";
   }

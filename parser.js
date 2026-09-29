@@ -71,7 +71,7 @@ function parseDaysOld(raw) {
   m = s.match(/^(\d+)\s*mo$/i); // "3mo"
   if (m) return parseInt(m[1], 10) * 30;
   m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/); // "2026-07-16"
-  if (m) return Math.max(0, Math.round((Date.now() - new Date(+m[1], +m[2] - 1, +m[3])) / 864e5));
+  if (m) return Math.max(0, Math.floor((Date.now() - new Date(+m[1], +m[2] - 1, +m[3])) / 864e5));
   m = s.match(/^([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?$/); // "Jul 09" / "Jul 16, 2026"
   if (m) {
     const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
@@ -79,7 +79,7 @@ function parseDaysOld(raw) {
     if (mi === -1) return null;
     let d = new Date(m[3] ? +m[3] : new Date().getFullYear(), mi, +m[2]);
     if (!m[3] && d > new Date()) d.setFullYear(d.getFullYear() - 1);
-    return Math.max(0, Math.round((Date.now() - d) / 864e5));
+    return Math.max(0, Math.floor((Date.now() - d) / 864e5));
   }
   return null;
 }
@@ -819,7 +819,7 @@ function dedupeJobs(lists) {
   // employer's own date always wins; only fill dates the posting lacks
   const lend = (into, from) => {
     if (!into.salary && from.salary) into.salary = from.salary;
-    if (into.daysOld == null && from.daysOld != null) into.daysOld = from.daysOld;
+    if (into.daysOld == null && from.daysOld != null) { into.daysOld = from.daysOld; into.dateFrom = from.dateFrom; }
     if (!into.postedAt && from.postedAt && into.daysOld == null) into.postedAt = from.postedAt;
     if (!into.location && from.location) into.location = from.location;
   };

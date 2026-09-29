@@ -61,6 +61,7 @@ function withImported(fetched, importedJobs) {
     ...j, source: "imported", category: j.category || categorize(j.role, ""),
     // postedAt (email arrival minus the card's "N minutes ago") → live age
     daysOld: trueDaysOld({ ...j, daysOld: j.postedAt ? Math.max(0, Math.floor((Date.now() - j.postedAt) / 864e5)) : (j.daysOld ?? 0) }, EMPLOYER_DATES),
+    dateFrom: employerPostedAt(j, EMPLOYER_DATES) ? "employer" : "Jobright alert (when Jobright found it)",
     closed: false, noSponsorship: false, citizenOnly: false, salary: j.salary || "",
   }));
   return dedupeJobs([imp, fetched]); // imp first → imported entry wins on dupes
@@ -327,7 +328,7 @@ function jobsTableHtml(jobs, tracker, hidden = {}) {
       <td class="openDetail" title="${esc(j.role)} — click for details">${esc(cleanRole(j.role, j.location))}${j.salary ? `<div class="muted">${esc(j.salary)}</div>` : ""}${j.noSponsorship ? '<span class="badge" title="No visa sponsorship">🛂</span>' : ""}${j.citizenOnly ? '<span class="badge" title="US citizenship required">🇺🇸</span>' : ""}</td>
       <td><span class="${catClass(j.category)}">${esc(j.category)}</span></td>
       <td>${esc(j.location)}</td>
-      <td class="muted mono" style="white-space:nowrap">${ageLabel(j.daysOld)}${j.daysOld > 21 ? ' <span class="badge cooked" title="21+ days old — highkey cooked">💀</span>' : ""}</td>
+      <td class="muted mono" style="white-space:nowrap" title="${esc(j.daysOld == null ? "No posted date available" : j.dateFrom === "employer" ? "Posted date from the employer's own job board" : "Estimated — " + (j.dateFrom || "list date") + "; this company doesn't publish a posted date we can read")}">${j.daysOld != null && j.dateFrom && j.dateFrom !== "employer" ? "≈" : ""}${ageLabel(j.daysOld)}${j.daysOld > 21 ? ' <span class="badge cooked" title="21+ days old — highkey cooked">💀</span>' : ""}</td>
       <td class="muted">${esc(SRC_NAME[j.source] || j.source || "")}</td>
       <td class="rowActions">
         ${j.link ? `<a class="act go" href="${esc(j.link)}" target="_blank" rel="noreferrer" title="Open the posting">Go ↗</a>` : ""}
