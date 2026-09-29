@@ -253,8 +253,11 @@ async function resolvePending(url, applied) {
   render();
 }
 
+let PENDING = {}; // normalized url → job waiting on "did you apply?"
+
 async function renderPending() {
   const { pendingApply = {} } = await chrome.storage.local.get("pendingApply");
+  PENDING = pendingApply;
   const items = Object.entries(pendingApply).sort((a, b) => b[1].clickedAt - a[1].clickedAt);
   const html = items.map(([url, j]) => `
     <div class="pendingCard" data-url="${esc(url)}">
@@ -327,12 +330,15 @@ function jobsTableHtml(jobs, tracker, hidden = {}) {
       <td class="muted">${esc(SRC_NAME[j.source] || j.source || "")}</td>
       <td style="white-space:nowrap">
         <button class="ghost details" title="Details" aria-label="Job details">ⓘ</button>
-        ${j.link ? `<a class="applyLink" href="${esc(j.link)}" target="_blank" rel="noreferrer">${isEasyApply(j.link) ? "⚡ " : ""}apply ↗</a>` : ""}
-        ${j.link && !hid ? ` <button class="applyHide" title="Open the posting, mark it applied in your tracker, and hide it from the feed">✓ apply &amp; hide</button>` : ""}
-        ${j.link && !tracked ? ` <button class="ghost save">＋</button>` : ""}
+        ${!j.link ? "" : PENDING[normalizeUrl(j.link)]
+          ? `<span class="didApply">Did you apply? <button class="yesApplied">✓ yes</button><button class="ghost notApplied">no</button></span>`
+          : `<a class="applyLink" href="${esc(j.link)}" target="_blank" rel="noreferrer">${isEasyApply(j.link) ? "⚡ " : ""}apply ↗</a>`}
+        ${!j.link ? "" : tracked?.status && tracked.status !== "saved" && tracked.status !== "filled"
+          ? ` <span class="appliedMark" title="In your tracker as ${esc(tracked.status)}">✓ ${esc(tracked.status)}</span>`
+          : PENDING[normalizeUrl(j.link)] ? "" : ` <button class="markApplied" title="Mark as applied (logs it in your tracker)">✓ applied</button>`}
         ${hid
           ? ` <button class="ghost unhide" title="Bring it back" aria-label="Unhide job">↩ unhide</button>`
-          : ` <button class="ghost hideJob" title="Hide — not interested" aria-label="Hide job">🙈</button>`}
+          : ` <button class="ghost hideJob" title="Hide — not interested" aria-label="Hide job">🙈 hide</button>`}
       </td>
     </tr>`;
   });
@@ -343,7 +349,8 @@ function wireJobRows(box, jobs) {
   box.querySelectorAll("tr[data-i]").forEach((tr) => {
     const j = jobs[+tr.dataset.i];
     tr.querySelector("a.applyLink")?.addEventListener("click", () => {
-      addPending(j).then(renderPending); // tab opens; queue "did you apply?"
+      // tab opens; this row turns into "Did you apply? ✓ yes / no"
+      addPending(j).then(renderPending).then(render);
     });
     tr.querySelector("button.save")?.addEventListener("click", async () => {
       await upsertTracker(normalizeUrl(j.link), {
@@ -354,19 +361,24 @@ function wireJobRows(box, jobs) {
       render();
     });
     tr.querySelector("button.details")?.addEventListener("click", () => openDetail(j));
-    // one click: open the posting, log it as applied, get it out of the feed
-    tr.querySelector("button.applyHide")?.addEventListener("click", async () => {
-      chrome.tabs.create({ url: j.link, active: true });
+    const markApplied = async () => {
       await upsertTracker(normalizeUrl(j.link), {
         title: j.role, company: j.company, location: j.location,
         category: j.category, salary: j.salary, source: j.source || "",
         status: "applied", appliedAt: Date.now(),
       });
-      const { hiddenJobs = {}, pendingApply = {} } = await chrome.storage.local.get(["hiddenJobs", "pendingApply"]);
-      hiddenJobs[jobKey(j)] = { ts: Date.now(), company: j.company, role: j.role, applied: true };
-      delete pendingApply[normalizeUrl(j.link)]; // no "did you apply?" card needed
-      await chrome.storage.local.set({ hiddenJobs, pendingApply });
-      toast(`🎉 Applied to ${j.company} — tracked & hidden (undo in 🙈 hidden)`);
+      const { pendingApply = {} } = await chrome.storage.local.get("pendingApply");
+      delete pendingApply[normalizeUrl(j.link)];
+      await chrome.storage.local.set({ pendingApply });
+      toast(`🎉 Applied to ${j.company} — tracked`);
+      await renderPending();
+      render();
+    };
+    tr.querySelector("button.markApplied")?.addEventListener("click", markApplied);
+    tr.querySelector("button.yesApplied")?.addEventListener("click", markApplied);
+    tr.querySelector("button.notApplied")?.addEventListener("click", async () => {
+      await resolvePending(normalizeUrl(j.link), null); // just clear the question
+      await renderPending();
       render();
     });
     tr.querySelector("button.hideJob")?.addEventListener("click", async () => {
@@ -389,8 +401,9 @@ function wireJobRows(box, jobs) {
 // ---------- Today ----------
 
 async function renderToday() {
-  const { feedCache, tracker = {}, profile, importedJobs = {} } =
-    await chrome.storage.local.get(["feedCache", "tracker", "profile", "importedJobs"]);
+  const { feedCache, tracker = {}, profile, importedJobs = {}, pendingApply = {} } =
+    await chrome.storage.local.get(["feedCache", "tracker", "profile", "importedJobs", "pendingApply"]);
+  PENDING = pendingApply; // rows show "Did you apply?" for these
 
   const h = new Date().getHours();
   const name = profile?.personal?.firstName || "there";

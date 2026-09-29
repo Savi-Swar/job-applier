@@ -187,11 +187,14 @@
     font-size: 12.5px; font-weight: 550; color: var(--ink-2); cursor: pointer; transition: all .15s; white-space: nowrap;
   }
   button.ghost:hover { border-color: var(--accent); color: var(--accent); }
-  button.applyHide {
+  button.markApplied, button.yesApplied {
     padding: 4px 10px; border-radius: 8px; border: 1px solid var(--green); cursor: pointer;
     background: var(--green-soft); color: var(--green); font-size: 12px; font-weight: 650; white-space: nowrap;
   }
-  button.applyHide:hover { background: var(--green); color: var(--green-soft); }
+  button.markApplied:hover, button.yesApplied:hover { background: var(--green); color: var(--green-soft); }
+  .appliedMark { color: var(--green); font-size: 12px; font-weight: 650; white-space: nowrap; }
+  .didApply { font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+  .didApply button { margin-left: 4px; padding: 3px 8px; font-size: 12px; }
 
   /* ---------- tables ---------- */
   .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
