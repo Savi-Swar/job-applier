@@ -163,45 +163,97 @@ function normalizeUrl(u) {
 // Personalized match score 0-100. Rule-based (instant, free, explainable):
 // skills overlap, freshness, authorization conflicts, and your own history
 // with the company (they responded before? bump. they passed on you? note it).
+// ---------- company tiers (what the grade is mostly about) ----------
+// Elite quant/trading + frontier AI labs, then big tech, then strong tech /
+// buy-side, then banks & solid names. Matched on whole words of the company.
+const COMPANY_TIERS = [
+  ["S+", ["jane street", "citadel", "citadel securities", "hudson river trading", "hrt", "jump trading", "two sigma",
+    "d. e. shaw", "d.e. shaw", "de shaw", "d e shaw", "renaissance technologies", "five rings", "optiver", "imc",
+    "imc trading", "susquehanna", "sig", "tower research", "drw", "xtx markets", "radix trading", "openai", "anthropic",
+    "google deepmind", "deepmind"]],
+  ["S", ["google", "alphabet", "meta", "facebook", "apple", "microsoft", "amazon", "aws", "amazon web services",
+    "netflix", "nvidia"]],
+  ["A", ["stripe", "databricks", "palantir", "airbnb", "uber", "lyft", "snowflake", "coinbase", "robinhood", "ramp",
+    "figma", "scale ai", "linkedin", "pinterest", "snap", "doordash", "instacart", "roblox", "bloomberg", "tiktok",
+    "bytedance", "tesla", "spacex", "salesforce", "adobe", "datadog", "cloudflare", "plaid", "notion", "discord",
+    "reddit", "dropbox", "duolingo", "anduril", "waymo", "x.ai", "xai", "mistral", "cohere", "perplexity",
+    "point72", "cubist", "millennium", "bridgewater", "akuna capital", "akuna", "wolverine trading", "chicago trading company",
+    "belvedere trading", "virtu", "flow traders", "squarepoint", "old mission", "qube research", "hudson bay capital",
+    "citadel global equities", "arrowstreet", "aqr", "voleon", "pdt partners", "graham capital", "man group"]],
+  ["A-", ["goldman sachs", "morgan stanley", "jpmorgan", "jpmorgan chase", "jp morgan", "blackrock", "capital one",
+    "amd", "intel", "qualcomm", "oracle", "ibm", "cisco", "intuit", "shopify", "atlassian", "workday", "servicenow",
+    "twilio", "block", "square", "paypal", "visa", "mastercard", "american express", "ebay", "expedia", "spotify",
+    "electronic arts", "epic games", "riot games", "zoom", "hubspot", "palo alto networks", "crowdstrike"]],
+];
+const _tierRes = COMPANY_TIERS.map(([tier, names]) => [tier,
+  new RegExp("^(?:the )?(?:" + names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")(?![a-z0-9])", "i")]);
+
+function companyTier(company) {
+  const c = String(company || "").toLowerCase().replace(/[’']/g, "").replace(/,? (inc|llc|l\.p\.|lp|corp|corporation|co)\.?$/i, "").trim();
+  for (const [tier, re] of _tierRes) if (re.test(c)) return tier;
+  return "";
+}
+
+const TIER_BASE = { "S+": 88, S: 82, A: 72, "A-": 64, "": 45 };
+// roles that aren't the target (SWE / quant / ML) even at a great company
+const OFF_TARGET = /\b(it support|help ?desk|technicians?|data center tech\w*|critical environment|sales|account (executive|manager)s?|marketing|recruit\w*|human resources|hr|legal|counsel|audit\w*|accounting|tax|payroll|supply chain|procurement|facilities|construction|customer (success|support|service)|customer and partner|partner solutions|solutions (engineer|architect)\w*|sales engineer\w*|data cent(er|re)|business development|communications|public policy|administrative|office|real estate|warehouse|logistics|mechanical|civil|chemical|nurs\w+|clinical)\b/i;
+
+// S+ … F on a 0–100 score
+const GRADE_CUTS = [[96, "S+"], [90, "S"], [85, "A+"], [80, "A"], [75, "A-"], [70, "B+"], [65, "B"], [60, "B-"],
+  [55, "C+"], [50, "C"], [45, "C-"], [35, "D"]];
+function gradeFor(score) {
+  for (const [min, g] of GRADE_CUTS) if (score >= min) return g;
+  return "F";
+}
+
+// Personalized score, company-first: an elite quant / big-tech SWE-quant-ML
+// intern lands S-range; the same role at an unranked company tops out around
+// C+/B-; off-target roles (IT, sales, technician…) sink regardless of company.
 function scoreJob(job, profile, history) {
-  if (job.closed) return { score: 0, reasons: ["closed"] };
+  if (job.closed) return { score: 0, grade: "F", reasons: ["closed"] };
   const reasons = [];
-  let score = 50;
+  const tier = companyTier(job.company);
+  let score = TIER_BASE[tier];
+  reasons.push(tier ? `${tier}-tier company` : "unranked company");
+
+  const role = String(job.role || "");
+  if (OFF_TARGET.test(role)) { score -= 30; reasons.push("off-target role"); }
+  else {
+    const catAdj = { SWE: 8, Quant: 9, "ML/AI": 8, Data: 3, Hardware: -4, Security: 0, PM: -6, Other: -12 }[job.category] ?? 0;
+    score += catAdj;
+    if (catAdj >= 8) reasons.push(`${job.category} role`);
+    else if (catAdj < 0) reasons.push(`${job.category || "other"} role`);
+  }
+  if (/\bph\.?d\b|post-?doc/i.test(role) && !/\b(bs|ba|undergrad|bachelor)/i.test(role)) { score -= 10; reasons.push("PhD/postdoc-only"); }
 
   if (history) {
-    const co = job.company.toLowerCase();
-    if (history.responded?.has(co)) { score += 10; reasons.push("this company has responded to you before"); }
-    else if (history.rejected?.has(co)) { score -= 12; reasons.push("they passed on you before"); }
+    const co = String(job.company || "").toLowerCase();
+    if (history.responded?.has(co)) { score += 5; reasons.push("they've responded to you before"); }
+    else if (history.rejected?.has(co)) { score -= 8; reasons.push("they passed on you before"); }
   }
 
   const skills = (profile?.skills || []).map((s) => s.toLowerCase()).filter((s) => s.length > 1);
-  const text = (job.role + " " + (job.category || "")).toLowerCase();
-  const hits = skills.filter((s) => text.includes(s));
-  if (hits.length) {
-    score += Math.min(hits.length * 9, 27);
-    reasons.push(`mentions your skills: ${hits.slice(0, 3).join(", ")}`);
-  }
+  const hits = skills.filter((s) => role.toLowerCase().includes(s));
+  if (hits.length) { score += Math.min(hits.length * 2, 6); reasons.push(`mentions your skills: ${hits.slice(0, 3).join(", ")}`); }
 
   if (job.daysOld != null) {
-    if (job.daysOld <= 2) { score += 15; reasons.push("posted <48h — best window"); }
-    else if (job.daysOld <= 7) { score += 8; reasons.push("posted this week"); }
-    else if (job.daysOld > 21) { score -= 18; reasons.push("cooked (21d+)"); }
+    if (job.daysOld <= 2) { score += 4; reasons.push("posted <48h — best window"); }
+    else if (job.daysOld <= 7) { score += 2; reasons.push("posted this week"); }
+    else if (job.daysOld > 45) { score -= 20; reasons.push("cooked (45d+)"); }
+    else if (job.daysOld > 21) { score -= 10; reasons.push("cooked (21d+)"); }
   }
 
   const needsSponsor = profile?.authorization?.needsSponsorship === "Yes";
   const notAuthorized = profile?.authorization?.authorizedUS === "No";
-  if (job.noSponsorship && needsSponsor) {
-    score -= 45; reasons.push("⚠ no sponsorship offered — you need it");
-  }
+  if (job.noSponsorship && needsSponsor) { score -= 45; reasons.push("⚠ no sponsorship offered — you need it"); }
   if (job.citizenOnly) {
     if (needsSponsor || notAuthorized) { score -= 45; reasons.push("⚠ US citizenship required"); }
-    else { score -= 10; reasons.push("US citizenship required"); }
+    else { score -= 3; reasons.push("US citizenship required"); }
   }
+  if (job.salary) { score += 1; reasons.push("salary listed"); }
 
-  if (job.salary) { score += 5; reasons.push("salary listed"); }
-  if (job.source === "watch") { score += 6; reasons.push("from your watchlist"); }
-
-  return { score: Math.max(0, Math.min(100, score)), reasons };
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, grade: gradeFor(score), tier, reasons };
 }
 
 // One-time seed from Savitur's real resume (July 2026) — used only when no
@@ -355,6 +407,11 @@ function jobUrlId(link) {
       if (id) return "li:" + id;
     }
     if (/indeed\.com$/.test(host) && (q("jk") || q("vjk"))) return "indeed:" + (q("jk") || q("vjk"));
+    if (/metacareers\.com$|facebook\.com$/.test(host) && (m = path.match(/\/(?:job_details|jobs)\/(\d{10,})/))) return "meta:" + m[1];
+    if (/google\.com$/.test(host) && /careers/.test(path) && (m = path.match(/\/jobs\/results\/(\d{10,})/))) return "google:" + m[1];
+    if (/jobs\.apple\.com$/.test(host) && (m = path.match(/\/details\/(\d{6,})/))) return "apple:" + m[1];
+    if (/careers\.microsoft\.com$/.test(host) && (m = path.match(/\/job\/(\d{6,})/))) return "ms:" + m[1];
+    if (/amazon\.jobs$/.test(host) && (m = path.match(/\/jobs\/(\d{5,})/))) return "amazon:" + m[1];
     if (/jobright\.ai$/.test(host) && (m = path.match(/\/jobs\/info\/([0-9a-f]{16,})/i))) return "jobright:" + m[1].toLowerCase();
     if (/simplify\.jobs$/.test(host) && (m = path.match(UUID))) return "simplify:" + m[1].toLowerCase();
     if (/smartrecruiters\.com$/.test(host) && (m = path.match(/\/(\d{12,})/))) return "sr:" + m[1];

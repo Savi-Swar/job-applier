@@ -47,7 +47,7 @@ const LOC_CHIPS = {
   "Austin": /austin/i,
   "Remote": /remote/i,
 };
-const SRC_NAME = { ...Object.fromEntries(GH_SOURCES.map((s) => [s.id, s.name])), linkedin: "LinkedIn", watch: "Watchlist", imported: "Imported" };
+const SRC_NAME = { ...Object.fromEntries(GH_SOURCES.map((s) => [s.id, s.name])), simplify: "SimplifyJobs", linkedin: "LinkedIn", watch: "Company boards", imported: "Imported" };
 
 // (titleCase / parseJobUrl / parseImport moved to parser.js — shared with the
 // email scanner content script)
@@ -66,95 +66,6 @@ function withImported(fetched, importedJobs) {
 }
 const SECTIONS = ["today", "feed", "calendar", "tracker", "profile"];
 
-// ---------- LinkedIn guest listing (public, no login) ----------
-
-async function fetchLinkedIn(q) {
-  const params = new URLSearchParams({
-    keywords: q.keywords,
-    location: q.location || "United States",
-    start: "0",
-  });
-  const res = await fetch(
-    "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + params
-  );
-  if (!res.ok) throw new Error(`LinkedIn "${q.keywords}": HTTP ${res.status}`);
-  const doc = new DOMParser().parseFromString(await res.text(), "text/html");
-  return [...doc.querySelectorAll(".base-card")]
-    .map((card) => {
-      const link = card.querySelector("a.base-card__full-link")?.getAttribute("href") || "";
-      const role = card.querySelector(".base-search-card__title")?.textContent.trim() || "";
-      const company = card.querySelector(".base-search-card__subtitle")?.textContent.trim() || "";
-      const location = card.querySelector(".job-search-card__location")?.textContent.trim() || "";
-      const dt = card.querySelector("time[datetime]")?.getAttribute("datetime");
-      let daysOld = null;
-      const m = dt && dt.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (m) daysOld = Math.max(0, Math.round((Date.now() - new Date(+m[1], +m[2] - 1, +m[3])) / 864e5));
-      return {
-        source: "linkedin", company, role, location,
-        category: categorize(role, ""), salary: "",
-        link: link ? normalizeUrl(link) : null, daysOld,
-        closed: !link, noSponsorship: false, citizenOnly: false,
-      };
-    })
-    .filter((j) => j.company && j.role);
-}
-
-// ---------- company watchlist (direct Greenhouse/Lever board APIs) ----------
-// These are public JSON endpoints — postings show up here the moment a company
-// posts them, often days before the aggregator lists catch up.
-
-async function fetchWatch(w) {
-  const slug = (w.slug || "").trim().toLowerCase();
-  if (!slug) return [];
-  let jobs = [];
-  if (w.ats === "lever") {
-    const res = await fetch(`https://api.lever.co/v0/postings/${slug}?mode=json`);
-    if (!res.ok) throw new Error(`Watchlist ${slug} (Lever): HTTP ${res.status}`);
-    jobs = (await res.json()).map((j) => ({
-      source: "watch", company: w.name || slug, role: j.text,
-      location: j.categories?.location || "", category: categorize(j.text, ""),
-      salary: "", link: normalizeUrl(j.hostedUrl),
-      daysOld: j.createdAt ? Math.max(0, Math.round((Date.now() - j.createdAt) / 864e5)) : null,
-      closed: false, noSponsorship: false, citizenOnly: false,
-    }));
-  } else if (w.ats === "amazon") {
-    // amazon.jobs public search — slug is the search query
-    const q = w.slug || "software engineer intern";
-    const res = await fetch(`https://www.amazon.jobs/en/search.json?base_query=${encodeURIComponent(q)}&result_limit=100`);
-    if (!res.ok) throw new Error(`Watchlist Amazon: HTTP ${res.status}`);
-    jobs = ((await res.json()).jobs || []).map((j) => ({
-      source: "watch", company: w.name || "Amazon", role: j.title,
-      location: j.normalized_location || j.location || "", category: categorize(j.title, ""),
-      salary: "", link: normalizeUrl("https://www.amazon.jobs" + j.job_path),
-      daysOld: parseDaysOld(j.posted_date || ""),
-      closed: false, noSponsorship: false, citizenOnly: false,
-    }));
-  } else if (w.ats === "eightfold") {
-    // Eightfold (Netflix & co) — slug is "host|domain", e.g. explore.jobs.netflix.net|netflix.com
-    const [host, domain] = slug.split("|");
-    const res = await fetch(`https://${host}/api/apply/v2/jobs?domain=${encodeURIComponent(domain || "")}&query=intern&num=100`);
-    if (!res.ok) throw new Error(`Watchlist ${w.name || host} (Eightfold): HTTP ${res.status}`);
-    jobs = ((await res.json()).positions || []).map((p) => ({
-      source: "watch", company: w.name || host, role: p.name,
-      location: (p.location || "").split(",").slice(0, 2).join(", "), category: categorize(p.name, ""),
-      salary: "", link: normalizeUrl(p.canonicalPositionUrl || `https://${host}/careers/job/${p.id}`),
-      daysOld: p.t_create ? Math.max(0, Math.round((Date.now() - p.t_create * 1000) / 864e5)) : null,
-      closed: false, noSponsorship: false, citizenOnly: false,
-    }));
-  } else {
-    const res = await fetch(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`);
-    if (!res.ok) throw new Error(`Watchlist ${slug} (Greenhouse): HTTP ${res.status}`);
-    jobs = ((await res.json()).jobs || []).map((j) => ({
-      source: "watch", company: w.name || slug, role: j.title,
-      location: j.location?.name || "", category: categorize(j.title, ""),
-      salary: "", link: normalizeUrl(j.absolute_url),
-      daysOld: j.updated_at ? Math.max(0, Math.round((Date.now() - new Date(j.updated_at)) / 864e5)) : null,
-      closed: false, noSponsorship: false, citizenOnly: false,
-    }));
-  }
-  // full boards are huge (Stripe: 500+) — keep the early-career slice
-  return jobs.filter((j) => /intern|co-?op|campus|university|new grad|graduate|early career/i.test(j.role));
-}
 
 // ---------- feed refresh ----------
 
@@ -164,31 +75,35 @@ async function refreshFeed() {
   btn.textContent = "Fetching…";
   for (const id of ["feedTable", "freshTable", "backlogTable", "cookedTable"])
     document.getElementById(id).classList.add("loading");
-  const { linkedinQueries = [], watchlist = [] } =
-    await chrome.storage.local.get(["linkedinQueries", "watchlist"]);
-  const results = await Promise.allSettled([
-    ...GH_SOURCES.map(async (s) => {
-      const res = await fetch(s.url);
-      if (!res.ok) throw new Error(`${s.name}: HTTP ${res.status}`);
-      return parseReadme(await res.text(), s.id);
-    }),
-    ...linkedinQueries.filter((q) => q.keywords).map(fetchLinkedIn),
-    ...watchlist.map(fetchWatch),
-  ]);
-  const errors = results.filter((r) => r.status === "rejected").map((r) => String(r.reason.message || r.reason));
-  const jobs = dedupeJobs(results.filter((r) => r.status === "fulfilled").map((r) => r.value));
-  await chrome.storage.local.set({ feedCache: { fetchedAt: Date.now(), jobs, errors } });
+  // the background worker owns refreshes (it also runs them hourly); fall back
+  // to fetching here if it's unreachable
+  let cache;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "REFRESH_FEED" });
+    if (!res?.ok) throw new Error(res?.error || "no response");
+    cache = res.feedCache;
+  } catch {
+    cache = await refreshAllSources();
+  }
   btn.disabled = false;
   btn.textContent = "Refresh feed";
   for (const id of ["feedTable", "freshTable", "backlogTable", "cookedTable"])
     document.getElementById(id).classList.remove("loading");
-  toast(`Feed refreshed — ${jobs.length} postings${errors.length ? ` (${errors.length} source${errors.length > 1 ? "s" : ""} failed)` : ""}`);
+  const errors = cache.errors || [];
+  toast(`Feed refreshed — ${cache.jobs.length} postings${errors.length ? ` (${errors.length} source${errors.length > 1 ? "s" : ""} failed)` : ""}`);
   render();
 }
 
 // ---------- filters (persisted) ----------
 
-const FILTER_IDS = ["fSearch", "fLocation", "fDays", "fSort", "fHideClosed", "fHideTracked", "fEasyOnly"];
+const FILTER_IDS = ["fSearch", "fLocation", "fDays", "fSort", "fMinGrade", "fHideClosed", "fHideTracked", "fEasyOnly"];
+
+// grade floor — applied after scoring (grades need the profile + history)
+const GRADE_ORDER = ["S+", "S", "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F"];
+function meetsGrade(j, minGrade) {
+  if (!minGrade || !j._fit) return true;
+  return GRADE_ORDER.indexOf(j._fit.grade || gradeFor(j._fit.score)) <= GRADE_ORDER.indexOf(minGrade);
+}
 
 // the boards where autofill handles ~everything in one click
 function isEasyApply(link) {
@@ -218,6 +133,7 @@ function readFilters() {
     location: document.getElementById("fLocation").value.trim().toLowerCase(),
     days: parseInt(document.getElementById("fDays").value, 10) || null,
     sort: document.getElementById("fSort").value,
+    minGrade: document.getElementById("fMinGrade").value,
     hideClosed: document.getElementById("fHideClosed").checked,
     hideTracked: document.getElementById("fHideTracked").checked,
     easyOnly: document.getElementById("fEasyOnly").checked,
@@ -244,6 +160,7 @@ async function restoreFilters() {
   document.getElementById("fLocation").value = f.rawLocation || "";
   document.getElementById("fDays").value = f.rawDays || "";
   document.getElementById("fSort").value = f.sort || "age";
+  document.getElementById("fMinGrade").value = f.minGrade ?? "A-";
   document.getElementById("fHideClosed").checked = f.hideClosed !== false;
   document.getElementById("fHideTracked").checked = !!f.hideTracked;
   document.getElementById("fEasyOnly").checked = !!f.easyOnly;
@@ -388,16 +305,10 @@ function sortJobs(jobs, mode) {
 
 function fitBadge(f) {
   if (!f) return "";
-  const cls = f.score >= 75 ? "hi" : f.score >= 55 ? "mid" : f.score >= 35 ? "low" : "bad";
+  const g = f.grade || gradeFor(f.score);
+  const cls = g.startsWith("S") ? "s" : g.startsWith("A") ? "hi" : g.startsWith("B") ? "mid" : g.startsWith("C") ? "low" : "bad";
   const tip = `${f.score}/100 · ${f.reasons.join(" · ") || "baseline"}`;
-  return `<span class="fit ${cls}" title="${esc(tip)}">${fitGrade(f.score)}</span>`;
-}
-
-// 0–100 match score → letter grade (raw number stays in the hover tooltip)
-function fitGrade(score) {
-  const cuts = [[93, "A+"], [85, "A"], [80, "A-"], [75, "B+"], [70, "B"], [65, "B-"], [60, "C+"], [55, "C"], [50, "C-"], [35, "D"]];
-  for (const [min, g] of cuts) if (score >= min) return g;
-  return "F";
+  return `<span class="fit ${cls}" title="${esc(tip)}">${g}</span>`;
 }
 
 // ---------- shared jobs table ----------
@@ -487,7 +398,8 @@ async function renderToday() {
   // honor saved feed filters (categories, sources, search…) but override the age window;
   // Today is always sorted by match score — that's the point of the briefing
   const f = { ...readFilters(), days: null, hidden: hiddenJobs, showHidden: false };
-  const pool = sortJobs(attachScores(applyFilters(withImported(feedCache.jobs, importedJobs), f, tracker), profile, tracker), "match");
+  const pool = sortJobs(attachScores(applyFilters(withImported(feedCache.jobs, importedJobs), f, tracker), profile, tracker), "match")
+    .filter((j) => meetsGrade(j, f.minGrade));
   const fresh = pool.filter((j) => j.daysOld != null && j.daysOld <= 2);
   const backlog = pool.filter((j) => j.daysOld == null || (j.daysOld >= 3 && j.daysOld <= 21));
   const cooked = pool.filter((j) => j.daysOld != null && j.daysOld > 21);
@@ -1025,7 +937,8 @@ async function renderFeed() {
   const f = readFilters();
   f.hidden = hiddenJobs;
   f.showHidden = document.getElementById("fShowHidden").checked;
-  const jobs = sortJobs(attachScores(applyFilters(all, f, tracker), profile, tracker), f.sort);
+  const jobs = sortJobs(attachScores(applyFilters(all, f, tracker), profile, tracker), f.sort)
+    .filter((j) => meetsGrade(j, f.minGrade));
 
   const ageMin = feedCache ? Math.round((Date.now() - feedCache.fetchedAt) / 60000) : 0;
   meta.textContent =
@@ -1320,10 +1233,9 @@ async function renderProfile() {
     <div class="itemRow" data-i="${i}">
       <input type="text" class="wSlug" value="${esc(w.slug || "")}" placeholder="slug (e.g. stripe)">
       <select class="wAts" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-size:12px">
-        <option value="greenhouse" ${!["lever", "amazon", "eightfold"].includes(w.ats) ? "selected" : ""}>Greenhouse</option>
-        <option value="lever" ${w.ats === "lever" ? "selected" : ""}>Lever</option>
-        <option value="amazon" ${w.ats === "amazon" ? "selected" : ""}>Amazon</option>
-        <option value="eightfold" ${w.ats === "eightfold" ? "selected" : ""}>Eightfold</option>
+        ${[["greenhouse", "Greenhouse"], ["lever", "Lever"], ["amazon", "Amazon"], ["eightfold", "Eightfold"], ["jibe", "Jibe"],
+          ["meta", "Meta"], ["google", "Google"], ["microsoft", "Microsoft"], ["apple", "Apple"]]
+          .map(([v, l]) => `<option value="${v}" ${(w.ats || "greenhouse") === v ? "selected" : ""}>${l}</option>`).join("")}
       </select>
       <input type="text" class="wName" value="${esc(w.name || "")}" placeholder="display name (optional)">
       <button class="ghost delWatch" title="Stop watching" aria-label="Stop watching">✕</button>
@@ -1446,7 +1358,7 @@ const STALE_BG_MSG =
 async function bgIsCurrent() {
   try {
     const pong = await chrome.runtime.sendMessage({ type: "PING" });
-    return !!pong && pong.v >= 11; // v11 = job-id dedupe + clean email parse
+    return !!pong && pong.v >= 12; // v12 = hourly background feed + big-tech/quant boards
   } catch { return false; }
 }
 
@@ -1624,7 +1536,8 @@ document.getElementById("fLocs").insertAdjacentHTML(
 document.getElementById("fSources").insertAdjacentHTML(
   "beforeend",
   GH_SOURCES.map((s) => chip(s.id, s.name, true)).join("") +
-    chip("linkedin", "LinkedIn", true) + chip("watch", "Watchlist", true) + chip("imported", "Imported", true)
+    chip("simplify", "SimplifyJobs", true) + chip("linkedin", "LinkedIn", true) +
+    chip("watch", "Company boards", true) + chip("imported", "Imported", true)
 );
 document.querySelectorAll(".chips .chip").forEach((c) =>
   c.addEventListener("click", () => {
@@ -1768,15 +1681,20 @@ async function migrate() {
       ...store.linkedinQueries,
       { keywords: "software engineer intern (Google OR Meta OR Apple)", location: "United States" },
     ];
-  if (store.watchlist === undefined)
-    patch.watchlist = [
-      { slug: "software engineer intern", ats: "amazon", name: "Amazon" },
-      { slug: "explore.jobs.netflix.net|netflix.com", ats: "eightfold", name: "Netflix" },
-      { slug: "stripe", ats: "greenhouse", name: "Stripe" },
-      { slug: "palantir", ats: "lever", name: "Palantir" },
-    ];
+  if (store.watchlist === undefined) patch.watchlist = DEFAULT_WATCHLIST.map((w) => ({ ...w }));
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
   if (store.resume && patch.resumes) await chrome.storage.local.remove("resume");
+
+  // one-time (v2): big tech + quant boards pulled directly — add any default
+  // board the watchlist doesn't have yet (keeps your own entries and edits)
+  const { watchlistV2 } = await chrome.storage.local.get("watchlistV2");
+  if (!watchlistV2) {
+    const { watchlist: wl = [] } = await chrome.storage.local.get("watchlist");
+    const have = new Set(wl.map((w) => (w.ats || "greenhouse") + ":" + (w.slug || "").toLowerCase()));
+    const add = DEFAULT_WATCHLIST.filter((w) => !have.has(w.ats + ":" + w.slug.toLowerCase()));
+    await chrome.storage.local.set({ watchlist: [...add, ...wl], watchlistV2: true });
+    if (add.length) { toast(`Added ${add.length} big-tech & quant boards to your watchlist`); refreshFeed(); }
+  }
 
   // one-time: imported jobs no longer auto-save to the tracker — clear the
   // auto-added entries the user never touched (edited ones stay)

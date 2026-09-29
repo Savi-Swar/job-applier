@@ -11,7 +11,8 @@
     "alarms",
     "notifications",
     "downloads",
-    "identity"
+    "identity",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "https://*/*",
@@ -29,6 +30,16 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/__job-applier-status*"
+      ],
+      "js": [
+        "parser.js",
+        "status.js"
+      ],
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "https://mail.google.com/*",

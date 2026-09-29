@@ -1,7 +1,7 @@
 // Service worker: Gemini API calls (content scripts can't cross CORS) + the
 // morning briefing alarm.
 
-importScripts("parser.js");
+importScripts("parser.js", "sources.js");
 
 // ---------- morning briefing (daily notification at 8am) ----------
 
@@ -20,19 +20,33 @@ async function ensureAlarm() {
     // unpacked install: pick up code edits on disk without a manual ↻
     chrome.alarms.create("selfreload", { delayInMinutes: 1, periodInMinutes: 1 });
   }
+  if (!(await chrome.alarms.get("feedrefresh"))) {
+    // job boards + lists every hour, dashboard open or not
+    chrome.alarms.create("feedrefresh", { delayInMinutes: 1, periodInMinutes: 60 });
+  }
   if (!(await chrome.alarms.get("inboxsync"))) {
     // check the inbox for new job emails every 30 min (no-op until Gmail connected)
     chrome.alarms.create("inboxsync", { delayInMinutes: 2, periodInMinutes: 30 });
   }
 }
-chrome.runtime.onInstalled.addListener(() => { rememberLoadedCode(); ensureAlarm(); gmailSync(false).catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => {
+  rememberLoadedCode(); ensureAlarm();
+  gmailSync(false).catch(() => {}); refreshFeedInBackground();
+});
 chrome.runtime.onStartup.addListener(() => { ensureAlarm(); gmailSync(false).catch(() => {}); });
+
+// hourly feed refresh (+ on demand from the dashboard); one at a time
+let feedRefreshing = null;
+function refreshFeedInBackground() {
+  if (!feedRefreshing) feedRefreshing = refreshAllSources().finally(() => { feedRefreshing = null; });
+  return feedRefreshing.catch((e) => { console.warn("feed refresh", e); return null; });
+}
 
 // ---------- self-reload (unpacked installs) ----------
 // Chrome keeps running the old code after files change until someone clicks
 // ↻ at chrome://extensions. An unpacked extension reads its own files straight
 // from disk, so fingerprint them once a minute and reload when they change.
-const CODE_FILES = ["manifest.json", "background.js", "parser.js", "content.js", "emailscan.js", "dashboard.js", "dashboard.html", "popup.js", "popup.html", "options.js", "options.html"];
+const CODE_FILES = ["manifest.json", "background.js", "parser.js", "sources.js", "status.js", "content.js", "emailscan.js", "dashboard.js", "dashboard.html", "popup.js", "popup.html", "options.js", "options.html"];
 async function codeFingerprint() {
   let h = 0;
   for (const f of CODE_FILES) {
@@ -56,6 +70,7 @@ async function reloadIfCodeChanged() {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "selfreload") { await reloadIfCodeChanged(); return; }
+  if (alarm.name === "feedrefresh") { await refreshFeedInBackground(); return; }
   if (alarm.name === "autobackup") {
     try {
       const all = await chrome.storage.local.get(null);
@@ -129,9 +144,14 @@ const geminiUrl = (model, key) =>
 // Personal-use default. If this folder is ever shared/published, remove this.
 const DEFAULT_API_KEY = "";
 
-const BG_VERSION = 11; // v11 = job-id dedupe + clean email parse — dashboard checks this
+const BG_VERSION = 12; // v12 = hourly background feed + big-tech/quant boards — dashboard checks this
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "REFRESH_FEED") {
+    refreshFeedInBackground().then((feedCache) =>
+      sendResponse(feedCache ? { ok: true, feedCache } : { ok: false, error: "refresh failed" }));
+    return true;
+  }
   if (msg.type === "PING") {
     sendResponse({ ok: true, v: BG_VERSION });
     return; // synchronous response

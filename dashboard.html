@@ -258,6 +258,7 @@
     font-family: var(--font-mono); font-variant-numeric: tabular-nums;
     padding: 3px 7px; border-radius: 8px; cursor: default;
   }
+  .fit.s { background: linear-gradient(135deg, #f7d774, #e0a82e); color: #3a2600; }
   .fit.hi { background: var(--green-soft); color: var(--green); }
   .fit.mid { background: var(--accent-soft); color: var(--accent); }
   .fit.low { background: var(--chip-bg); color: var(--ink-2); }
@@ -416,6 +417,13 @@
           <option value="age">Sort: newest</option>
           <option value="match">Sort: best match</option>
         </select>
+        <select id="fMinGrade" title="Hide anything graded below this">
+          <option value="S">Grade: S and up</option>
+          <option value="A+">Grade: A+ and up</option>
+          <option value="A-" selected>Grade: A- and up</option>
+          <option value="B-">Grade: B- and up</option>
+          <option value="">Grade: all</option>
+        </select>
         <label><input type="checkbox" id="fHideClosed" checked> hide closed</label>
         <label><input type="checkbox" id="fHideTracked"> hide tracked</label>
         <label title="Greenhouse / Lever / Ashby — the boards where autofill does ~everything"><input type="checkbox" id="fEasyOnly"> ⚡ easy-apply only</label>
@@ -566,6 +574,7 @@
   </div>
 
   <script src="parser.js"></script>
+  <script src="sources.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>
