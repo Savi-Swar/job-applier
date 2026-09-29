@@ -53,13 +53,14 @@ const SRC_NAME = { ...Object.fromEntries(GH_SOURCES.map((s) => [s.id, s.name])),
 // email scanner content script)
 
 // all feed jobs = fetched sources + imported, deduped (imported kept fresh)
+let EMPLOYER_DATES = null; // loaded in render paths; real first-published dates
 function withImported(fetched, importedJobs) {
   // a bad-parse leftover (sender as company / whole card as title) never
   // reaches the feed — the next scan of that email replaces it properly
   const imp = Object.values(importedJobs || {}).filter((j) => !isMangledImport(j)).map((j) => ({
     ...j, source: "imported", category: j.category || categorize(j.role, ""),
     // postedAt (email arrival minus the card's "N minutes ago") → live age
-    daysOld: j.postedAt ? Math.max(0, Math.floor((Date.now() - j.postedAt) / 864e5)) : (j.daysOld ?? 0),
+    daysOld: trueDaysOld({ ...j, daysOld: j.postedAt ? Math.max(0, Math.floor((Date.now() - j.postedAt) / 864e5)) : (j.daysOld ?? 0) }, EMPLOYER_DATES),
     closed: false, noSponsorship: false, citizenOnly: false, salary: j.salary || "",
   }));
   return dedupeJobs([imp, fetched]); // imp first → imported entry wins on dupes
@@ -392,6 +393,7 @@ function wireJobRows(box, jobs) {
 // ---------- Today ----------
 
 async function renderToday() {
+  EMPLOYER_DATES = (await chrome.storage.local.get("employerDates")).employerDates || null;
   const { feedCache, tracker = {}, profile, importedJobs = {}, pendingApply = {} } =
     await chrome.storage.local.get(["feedCache", "tracker", "profile", "importedJobs", "pendingApply"]);
   PENDING = pendingApply; // rows show "Did you apply?" for these
@@ -938,6 +940,7 @@ async function openDetail(jobLike, autoTool) {
 // ---------- feed rendering ----------
 
 async function renderFeed() {
+  EMPLOYER_DATES = (await chrome.storage.local.get("employerDates")).employerDates || null;
   const { feedCache, tracker = {}, profile, hiddenJobs = {}, importedJobs = {} } =
     await chrome.storage.local.get(["feedCache", "tracker", "profile", "hiddenJobs", "importedJobs"]);
   const meta = document.getElementById("feedMeta");

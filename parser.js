@@ -727,6 +727,34 @@ function mergeImports(importedJobs, jobs) {
   return { added, fixed };
 }
 
+// ---------- employer posting dates ----------
+// Lists (GitHub, Simplify) date a job by when THEY added it and Jobright by
+// when IT found it — the employer's own first-published date is the truth.
+// employerDates = { byId: {jobUrlId: ms}, byTitle: {"company|titlekey": ms} }
+function companyKey(company) {
+  return String(company || "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim().split(/\s+/)[0] || "";
+}
+// word-set key so "Quantitative Technologist (C++ Intern)" ≡ "Quantitative Technologist Intern, C++"
+function titleKey(role) {
+  const words = String(role || "").toLowerCase()
+    .replace(/\binternship\b/g, "intern").replace(/\bsoftware engineer(ing)?\b/g, "swe")
+    .replace(/\b(20\d\d|summer|fall|winter|spring|the|and|of|for|a|an|in|us|usa)\b/g, " ")
+    .replace(/[^a-z0-9+#]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  return [...new Set(words)].sort().join(" ");
+}
+function employerPostedAt(job, ed) {
+  if (!ed || !job) return null;
+  const id = job.link ? jobUrlId(job.link) : null;
+  if (id && ed.byId && ed.byId[id]) return ed.byId[id];
+  const k = companyKey(job.company) + "|" + titleKey(job.role);
+  return (ed.byTitle && ed.byTitle[k]) || null;
+}
+// age in days from the employer's date when we have it, else the given one
+function trueDaysOld(job, ed) {
+  const at = employerPostedAt(job, ed);
+  return at ? Math.max(0, Math.floor((Date.now() - at) / 864e5)) : job.daysOld ?? null;
+}
+
 // Flatten an email's HTML to parseImport-ready text: every <a> becomes
 // "its text  its-url", block ends become newlines — so a Jobright card keeps
 // its line shape (company / industry / NN% / role / location / time ago).

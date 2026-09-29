@@ -283,6 +283,56 @@ const DEFAULT_WATCHLIST = [
   { ats: "greenhouse", slug: "airbnb", name: "Airbnb" },
 ];
 
+// Real first-published dates for every ranked company (S+ … A-) with a
+// public Greenhouse/Lever board — slugs come from the jobs' own links and the
+// watchlist. Boards are cached 6h so the hourly refresh stays light.
+async function buildEmployerDates(jobs, watchlist) {
+  const { boardCache = {} } = await chrome.storage.local.get("boardCache");
+  const want = new Map(); // "gh:slug" | "lever:slug" → company key
+  for (const j of jobs) {
+    if (!companyTier(j.company) || !j.link) continue;
+    const m = j.link.match(/greenhouse\.io\/(?:embed\/job_app\?for=)?([a-z0-9_-]+)/i);
+    if (m && m[1].toLowerCase() !== "embed") want.set("gh:" + m[1].toLowerCase(), companyKey(j.company));
+    const l = j.link.match(/jobs\.lever\.co\/([a-z0-9_-]+)/i);
+    if (l) want.set("lever:" + l[1].toLowerCase(), companyKey(j.company));
+  }
+  for (const w of watchlist || []) {
+    if ((w.ats || "greenhouse") === "greenhouse" && w.slug) want.set("gh:" + w.slug.toLowerCase(), companyKey(w.name || w.slug));
+    if (w.ats === "lever" && w.slug) want.set("lever:" + w.slug.toLowerCase(), companyKey(w.name || w.slug));
+  }
+  const now = Date.now();
+  const stale = [...want.keys()].filter((k) => !boardCache[k] || now - boardCache[k].at > 6 * 3600e3);
+  for (let i = 0; i < stale.length; i += 8) {
+    await Promise.all(stale.slice(i, i + 8).map(async (k) => {
+      const [ats, slug] = k.split(":");
+      try {
+        if (ats === "gh") {
+          const r = await fetch(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`);
+          if (!r.ok) throw 0;
+          boardCache[k] = { at: now, jobs: ((await r.json()).jobs || []).map((x) => ({
+            id: "gh:" + x.id, title: x.title, t: Date.parse(x.first_published || x.updated_at || "") || 0 })) };
+        } else {
+          const r = await fetch(`https://api.lever.co/v0/postings/${slug}?mode=json`);
+          if (!r.ok) throw 0;
+          boardCache[k] = { at: now, jobs: (await r.json()).map((x) => ({ id: "lever:" + String(x.id).toLowerCase(), title: x.text, t: x.createdAt || 0 })) };
+        }
+      } catch { boardCache[k] = { at: now, jobs: [] }; }
+    }));
+  }
+  for (const k of Object.keys(boardCache)) if (now - boardCache[k].at > 7 * 864e5) delete boardCache[k];
+  const ed = { byId: {}, byTitle: {} };
+  for (const [k, co] of want) {
+    for (const x of boardCache[k]?.jobs || []) {
+      if (!x.t) continue;
+      ed.byId[x.id] = x.t;
+      const tk = co + "|" + titleKey(x.title);
+      if (!ed.byTitle[tk] || x.t < ed.byTitle[tk]) ed.byTitle[tk] = x.t; // earliest same-title req
+    }
+  }
+  await chrome.storage.local.set({ boardCache, employerDates: ed });
+  return ed;
+}
+
 // Fetch every source, dedupe, and store the feed. Runs hourly from the
 // background worker and on demand from the dashboard's Refresh button.
 async function refreshAllSources() {
@@ -306,6 +356,14 @@ async function refreshAllSources() {
   // company boards first → their direct links win over list/aggregator copies
   const ordered = [...results.keys()].sort((a, b) => (tasks[b].name in watchIndex(watchlist)) - (tasks[a].name in watchIndex(watchlist)));
   const jobs = dedupeJobs(ordered.map((i) => (results[i].status === "fulfilled" ? results[i].value : [])));
+  // replace list/aggregator dates with the employer's own where we can
+  try {
+    const ed = await buildEmployerDates(jobs, watchlist);
+    for (const j of jobs) {
+      const at = employerPostedAt(j, ed);
+      if (at) { j.daysOld = Math.max(0, Math.floor((Date.now() - at) / 864e5)); j.dateFrom = "employer"; }
+    }
+  } catch (e) { errors.push("employer dates: " + (e.message || e)); }
   const feedCache = { fetchedAt: Date.now(), jobs, errors, perSource };
   await chrome.storage.local.set({ feedCache });
   return feedCache;
