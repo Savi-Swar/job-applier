@@ -194,6 +194,18 @@ function isEasyApply(link) {
 }
 
 // stable identity for a job across refreshes (same key the deduper uses)
+// tracker entry for this posting under any URL form (same job id)
+const _trackIdx = new WeakMap();
+function trackedEntry(tracker, link) {
+  if (!link || !tracker) return null;
+  const k = normalizeUrl(link);
+  if (tracker[k]) return tracker[k];
+  let idx = _trackIdx.get(tracker);
+  if (!idx) { idx = idIndex(tracker); _trackIdx.set(tracker, idx); }
+  const hit = idx.get(jobUrlId(link));
+  return hit ? tracker[hit] : null;
+}
+
 function jobKey(j) {
   return j.link ? normalizeUrl(j.link) : `${j.company}::${j.role}`.toLowerCase();
 }
@@ -254,7 +266,7 @@ function applyFilters(jobs, f, tracker) {
     if (f.location && !j.location.toLowerCase().includes(f.location)) return false;
     if (f.locs?.length && !f.locs.some((l) => LOC_CHIPS[l]?.test(j.location))) return false;
     if (f.search && !(j.company + " " + j.role).toLowerCase().includes(f.search)) return false;
-    if (f.hideTracked && j.link && tracker[normalizeUrl(j.link)]) return false;
+    if (f.hideTracked && trackedEntry(tracker, j.link)) return false;
     return true;
   });
 }
@@ -286,6 +298,7 @@ function normEntry(e) {
 
 async function upsertTracker(url, patch) {
   const { tracker = {} } = await chrome.storage.local.get("tracker");
+  url = storeKey(tracker, url); // same posting already tracked under another URL form
   const prev = tracker[url] ? normEntry(tracker[url]) : null;
   tracker[url] = {
     ...(prev || normEntry({ url, addedAt: Date.now(), status: "saved", title: "", company: "" })),
@@ -374,15 +387,22 @@ function sortJobs(jobs, mode) {
 function fitBadge(f) {
   if (!f) return "";
   const cls = f.score >= 75 ? "hi" : f.score >= 55 ? "mid" : f.score >= 35 ? "low" : "bad";
-  return `<span class="fit ${cls}" title="${esc(f.reasons.join(" · ") || "baseline")}">${f.score}</span>`;
+  const tip = `${f.score}/100 · ${f.reasons.join(" · ") || "baseline"}`;
+  return `<span class="fit ${cls}" title="${esc(tip)}">${fitGrade(f.score)}</span>`;
+}
+
+// 0–100 match score → letter grade (raw number stays in the hover tooltip)
+function fitGrade(score) {
+  const cuts = [[93, "A+"], [85, "A"], [80, "A-"], [75, "B+"], [70, "B"], [65, "B-"], [60, "C+"], [55, "C"], [50, "C-"], [35, "D"]];
+  for (const [min, g] of cuts) if (score >= min) return g;
+  return "F";
 }
 
 // ---------- shared jobs table ----------
 
 function jobsTableHtml(jobs, tracker, hidden = {}) {
   const rows = jobs.map((j, i) => {
-    const key = j.link ? normalizeUrl(j.link) : null;
-    const tracked = key && tracker[key];
+    const tracked = trackedEntry(tracker, j.link);
     const hid = !!hidden[jobKey(j)];
     return `<tr data-i="${i}">
       <td>${fitBadge(j._fit)}</td>
@@ -402,7 +422,7 @@ function jobsTableHtml(jobs, tracker, hidden = {}) {
       </td>
     </tr>`;
   });
-  return `<div class="scroll"><table><thead><tr><th title="Match score — hover a score for why">Fit</th><th>Company</th><th>Role</th><th>Cat</th><th>Location</th><th>Age</th><th>Source</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+  return `<div class="scroll"><table><thead><tr><th title="Match grade — hover a grade for the score and why">Fit</th><th>Company</th><th>Role</th><th>Cat</th><th>Location</th><th>Age</th><th>Source</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
 }
 
 function wireJobRows(box, jobs) {
@@ -490,7 +510,7 @@ async function renderToday() {
   document.getElementById("cookedHead").textContent = `💀 Cooked · ${cooked.length}`;
 
   // headline the single best fresh match — one obvious first move each morning
-  const pick = fresh.find((j) => !(j.link && tracker[normalizeUrl(j.link)]));
+  const pick = fresh.find((j) => !trackedEntry(tracker, j.link));
   document.getElementById("heroPick").innerHTML = pick
     ? `🎯 Top pick today: <a href="${esc(pick.link)}" target="_blank" rel="noreferrer" id="heroPickLink"><b>${esc(pick.role)}</b> at <b>${esc(pick.company)}</b></a> ${fitBadge(pick._fit)}`
     : "";
@@ -765,10 +785,11 @@ async function fetchDescription(url) {
 }
 
 async function openDetail(jobLike, autoTool) {
-  const url = normalizeUrl(jobLike.link || jobLike.url);
   const { tracker = {}, feedCache, jobDetails = {}, profile } =
     await chrome.storage.local.get(["tracker", "feedCache", "jobDetails", "profile"]);
-  const feedJob = (feedCache?.jobs || []).find((x) => x.link && normalizeUrl(x.link) === url);
+  const url = storeKey(tracker, jobLike.link || jobLike.url);
+  const jid = jobUrlId(jobLike.link || jobLike.url);
+  const feedJob = (feedCache?.jobs || []).find((x) => x.link && jobUrlId(x.link) === jid);
   const entry = tracker[url] ? normEntry(tracker[url]) : null;
   const j = {
     company: entry?.company || jobLike.company || feedJob?.company || "",
@@ -1573,11 +1594,14 @@ async function runImport() {
   const { importedJobs = {}, tracker = {} } = await chrome.storage.local.get(["importedJobs", "tracker"]);
   const alsoTrack = document.getElementById("impTrack").checked;
   let added = 0;
+  const known = idIndex(importedJobs);
   for (const j of parsed) {
+    if (known.has(jobUrlId(j.link))) continue; // same posting already imported
     const url = normalizeUrl(j.link);
+    known.set(jobUrlId(j.link), url);
     importedJobs[url] = { url, link: j.link, company: j.company, role: j.role, location: j.location || "", source: "imported", addedAt: Date.now(), daysOld: 0 };
     added++;
-    if (alsoTrack && !tracker[url]) {
+    if (alsoTrack && !trackedEntry(tracker, j.link)) {
       tracker[url] = { url, title: j.role, company: j.company, location: j.location || "", status: "saved", source: "imported",
         notes: "", addedAt: Date.now(), updatedAt: Date.now() };
     }
@@ -1767,6 +1791,33 @@ async function migrate() {
     }
     await chrome.storage.local.set({ tracker: t, gmailNoAutoTrack: true });
     if (untracked) toast(`Imported jobs now stay in the feed — cleared ${untracked} auto-tracked entries`);
+  }
+
+  // one-time (v2): the in-Gmail scanner kept auto-tracking every imported job
+  // as "saved" after the API sync stopped — clear those untouched entries too
+  const { importNoAutoTrackV2 } = await chrome.storage.local.get("importNoAutoTrackV2");
+  if (!importNoAutoTrackV2) {
+    const { tracker: t = {} } = await chrome.storage.local.get("tracker");
+    let untracked = 0;
+    for (const k of Object.keys(t)) {
+      const e = t[k];
+      if (e?.source === "imported" && e.status === "saved" && !e.notes && !e.nextStep &&
+          !e.appliedAt && (!e.referral || e.referral === "none") && (e.updatedAt || 0) <= (e.addedAt || 0)) {
+        delete t[k]; untracked++;
+      }
+    }
+    await chrome.storage.local.set({ tracker: t, importNoAutoTrackV2: true });
+    if (untracked) toast(`Cleared ${untracked} auto-tracked imports — they're still in your feed`);
+  }
+
+  // every load: collapse stored duplicates (same job id under different URLs)
+  {
+    const { importedJobs: ij = {}, tracker: tr = {} } = await chrome.storage.local.get(["importedJobs", "tracker"]);
+    const a = dedupeStore(ij, "imported"), b = dedupeStore(tr, "tracker");
+    if (a || b) {
+      await chrome.storage.local.set({ importedJobs: ij, tracker: tr });
+      toast(`Merged ${a + b} duplicate job${a + b > 1 ? "s" : ""}`);
+    }
   }
 
   // one-time: saved filters from when only SWE/Quant/ML-AI chips defaulted on

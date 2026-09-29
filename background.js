@@ -271,13 +271,13 @@ async function gmailSync(interactive) {
   const auth = { headers: { Authorization: "Bearer " + token } };
   // parser catch-up: after a parser upgrade, re-scan emails that were already
   // marked synced — their jobs were parsed with the old (buggy) code
-  const PARSER_V = 10;
+  const PARSER_V = 11;
   const { gmailParserV } = await chrome.storage.local.get("gmailParserV");
   if (gmailParserV !== PARSER_V)
     await chrome.storage.local.set({ syncedEmailIds: [], gmailParserV: PARSER_V });
-  // Jobright + common job-alert senders, last 7 days
+  // Jobright + common job-alert senders, last 21 days
   const q = encodeURIComponent(
-    'newer_than:7d (from:jobright.ai OR from:jobrightai OR subject:("job matches" OR "new jobs" OR "job alert" OR "matches for you"))'
+    'newer_than:21d (from:jobright.ai OR from:jobrightai OR subject:("job matches" OR "new jobs" OR "job alert" OR "matches for you"))'
   );
   const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${q}&maxResults=100`, auth);
   if (listRes.status === 401) {
@@ -290,6 +290,8 @@ async function gmailSync(interactive) {
   const { syncedEmailIds = [], importedJobs = {} } =
     await chrome.storage.local.get(["syncedEmailIds", "importedJobs"]);
   const fresh = ids.filter((id) => !syncedEmailIds.includes(id));
+  dedupeStore(importedJobs, "imported");
+  const known = idIndex(importedJobs);
 
   let added = 0, scanned = 0;
   const debugTexts = []; // flattened bodies — dumped to Downloads for parser debugging
@@ -305,9 +307,10 @@ async function gmailSync(interactive) {
       // email cards always carry a role — a bare "Imported job" here means we
       // grabbed one of Jobright's own navigation links, not a posting
       if (!j.role || j.role === "Imported job") continue;
-      const url = normalizeUrl(j.link);
-      // known URL: heal whatever the old parser missed (name, location,
-      // salary, date) instead of skipping — rescans fix history in place
+      // known job (same id under any URL form): heal whatever the old parser
+      // missed (name, location, salary, date) instead of duplicating it
+      const id = jobUrlId(j.link);
+      const url = known.get(id) || normalizeUrl(j.link);
       const prev = importedJobs[url];
       if (prev) {
         if (!prev.company && j.company) prev.company = j.company;
@@ -324,12 +327,13 @@ async function gmailSync(interactive) {
         source: "imported", addedAt: Date.now(),
         postedAt: emailedAt - (j.agoMin || 0) * 60000, emailedAt,
       };
+      known.set(id, url);
       added++;
     }
   }
 
   await chrome.storage.local.set({
-    syncedEmailIds: [...syncedEmailIds, ...fresh].slice(-500),
+    syncedEmailIds: [...syncedEmailIds, ...fresh].slice(-1500), // 3 weeks of alerts is ~400 emails
     importedJobs, lastGmailSync: Date.now(),
   });
   if (debugTexts.length) {

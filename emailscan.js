@@ -59,19 +59,22 @@ if (!window.__jobApplierEmailScan) {
     const jobs = extractJobs().filter((j) => !processed.has(jobUrlId(j.link)));
     if (!jobs.length) return;
 
-    const { importedJobs = {}, tracker = {}, settings = {} } =
-      await chrome.storage.local.get(["importedJobs", "tracker", "settings"]);
+    // feed only — tracking is the user's call (＋ track / apply flow), same as
+    // the Gmail API sync. Dedupe on the job id, not the raw URL, so the same
+    // posting reached through a different link form isn't imported twice.
+    const { importedJobs = {} } = await chrome.storage.local.get("importedJobs");
+    const known = idIndex(importedJobs);
     let added = 0;
     for (const j of jobs) {
-      processed.add(jobUrlId(j.link));
+      const id = jobUrlId(j.link);
+      processed.add(id);
+      if (known.has(id)) continue;
       const url = normalizeUrl(j.link);
-      if (importedJobs[url]) continue;
       importedJobs[url] = { url, link: j.link, company: j.company, role: j.role, source: "imported", addedAt: Date.now(), daysOld: 0 };
-      if (settings.autoImportTrack !== false && !tracker[url])
-        tracker[url] = { url, title: j.role, company: j.company, status: "saved", source: "imported", notes: "", addedAt: Date.now(), updatedAt: Date.now() };
+      known.set(id, url);
       added++;
     }
-    if (added) { await chrome.storage.local.set({ importedJobs, tracker }); banner(added); }
+    if (added) { await chrome.storage.local.set({ importedJobs }); banner(added); }
   }
 
   function banner(n) {

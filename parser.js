@@ -323,23 +323,122 @@ Data/Infra: PostgreSQL, Redis, BullMQ, pg-boss, Supabase, Firebase, Docker`,
 // Pull the canonical job ID out of known ATS URLs so the SAME posting collapses
 // even when different repos link to it with different tracking/mirror URLs.
 function jobUrlId(link) {
+  // One canonical id per job posting, no matter which URL form it came in as
+  // (board vs embed vs company careers page, /apply suffix, tracking params,
+  // http/www, LinkedIn slug vs bare id…). Ids that are only unique within one
+  // employer's tenant (iCIMS, Workday, Oracle, Taleo…) are scoped by tenant so
+  // two companies' req #1234 never collide.
   try {
-    const u = new URL(link);
-    const host = u.hostname;
+    const u = new URL(unwrapUrl(link));
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    const path = decodeURIComponent(u.pathname);
+    const q = (k) => { for (const [kk, v] of u.searchParams) if (kk.toLowerCase() === k) return v; return null; };
+    const UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+    const tenant = host.split(".")[0];
     let m;
-    if (/greenhouse\.io/.test(host)) {
-      m = link.match(/(?:jobs\/|gh_jid=|job_app\?[^#]*?for=[^&]*&?token=)(\d{5,})/) || u.pathname.match(/\/(\d{5,})(?:\/|$)/);
-      if (m) return "gh:" + m[1];
+
+    // Greenhouse ids are global — also matches company career pages that
+    // embed Greenhouse (…?gh_jid=123) and the job_app?token= embed form
+    const gh = q("gh_jid") || (/greenhouse\.io$/.test(host) && (q("token") || (path.match(/\/jobs\/(\d{5,})/) || [])[1]));
+    if (gh && /^\d{5,}$/.test(gh)) return "gh:" + gh;
+    if (/lever\.co$/.test(host) && (m = path.match(UUID))) return "lever:" + m[1].toLowerCase();
+    const ashby = q("ashby_jid") || (/ashbyhq\.com$/.test(host) && (path.match(UUID) || [])[1]);
+    if (ashby && UUID.test(ashby)) return "ashby:" + ashby.toLowerCase();
+    if (/myworkdayjobs\.com$|myworkdaysite\.com$/.test(host)) {
+      // …/job/City/Title_R123456(-1)?(/apply)? — tenant is the first label
+      m = path.match(/_([A-Za-z0-9-]{5,})(?:\/apply(?:\/.*)?)?\/?$/);
+      if (m) return "wd:" + tenant + ":" + m[1].toUpperCase();
     }
-    if (/lever\.co/.test(host)) { m = u.pathname.match(/([0-9a-f]{8}-[0-9a-f-]{20,})/i); if (m) return "lever:" + m[1].toLowerCase(); }
-    if (/ashbyhq\.com/.test(host)) { m = u.pathname.match(/([0-9a-f]{8}-[0-9a-f-]{20,})/i); if (m) return "ashby:" + m[1].toLowerCase(); }
-    if (/myworkdayjobs\.com/.test(host)) { m = link.match(/_([A-Za-z0-9-]{6,})(?:[/?#]|$)/); if (m) return "wd:" + host.split(".")[0] + ":" + m[1]; }
-    if (/oraclecloud\.com/.test(host)) { m = link.match(/job\/(\d{4,})/); if (m) return "orc:" + m[1]; }
-    if (/icims\.com/.test(host)) { m = link.match(/jobs\/(\d{4,})/); if (m) return "icims:" + m[1]; }
-    return normalizeUrl(link);
+    if (/linkedin\.com$/.test(host)) {
+      m = path.match(/\/jobs\/view\/(?:[^/]*?-)?(\d{6,})/);
+      const id = (m && m[1]) || q("currentjobid");
+      if (id) return "li:" + id;
+    }
+    if (/indeed\.com$/.test(host) && (q("jk") || q("vjk"))) return "indeed:" + (q("jk") || q("vjk"));
+    if (/jobright\.ai$/.test(host) && (m = path.match(/\/jobs\/info\/([0-9a-f]{16,})/i))) return "jobright:" + m[1].toLowerCase();
+    if (/simplify\.jobs$/.test(host) && (m = path.match(UUID))) return "simplify:" + m[1].toLowerCase();
+    if (/smartrecruiters\.com$/.test(host) && (m = path.match(/\/(\d{12,})/))) return "sr:" + m[1];
+    if (/workable\.com$/.test(host) && (m = path.match(/\/j\/([A-Z0-9]{6,})/i))) return "workable:" + m[1].toUpperCase();
+    if (/jobvite\.com$/.test(host) && (m = path.match(/\/job\/(o[A-Za-z0-9]{6,})/))) return "jobvite:" + m[1];
+    if (/bamboohr\.com$/.test(host) && (m = path.match(/\/(?:careers|jobs)\/(?:view\.php\?id=)?(\d+)/) || (q("id") && [0, q("id")])))
+      return "bamboo:" + tenant + ":" + m[1];
+    if (/icims\.com$/.test(host) && (m = path.match(/\/jobs\/(\d{3,})/))) return "icims:" + tenant.replace(/^careers-/, "") + ":" + m[1];
+    if (/oraclecloud\.com$/.test(host) && (m = path.match(/\/job\/(\d{3,})/) || (q("jobid") && [0, q("jobid")])))
+      return "orc:" + tenant + ":" + m[1];
+    if (/taleo\.net$/.test(host) && (q("job") || q("requisition"))) return "taleo:" + tenant + ":" + (q("job") || q("requisition"));
+    if (/successfactors\.(com|eu)$/.test(host)) {
+      const id = q("career_job_req_id") || (path.match(/\/job\/[^/]*\/(\d{5,})/) || [])[1];
+      if (id) return "sf:" + (q("company") || tenant).toLowerCase() + ":" + id;
+    }
+    if (/eightfold\.ai$/.test(host)) {
+      const id = q("pid") || (path.match(/\/job\/(\d{5,})/) || [])[1];
+      if (id) return "ef:" + tenant + ":" + id;
+    }
+    if (/(^|\.)dover\.com$|rippling(-ats)?\.com$/.test(host) && (m = path.match(UUID))) return tenant + ":" + m[1].toLowerCase();
+
+    // unknown site: canonical URL — https, no www, lowercase host, tracking
+    // params dropped, /apply(/…) and trailing-slash variants collapsed
+    const n = new URL(normalizeUrl(u.href));
+    n.protocol = "https:";
+    n.hostname = host;
+    n.pathname = n.pathname.replace(/\/(apply|application)(\/.*)?$/i, "").replace(/\/+$/, "");
+    return n.toString().replace(/\/$/, "");
   } catch {
     return normalizeUrl(link);
   }
+}
+
+// Map a {key → job} store to {jobUrlId → key} so any URL form of a job finds
+// the entry it's already stored under.
+function idIndex(store) {
+  const idx = new Map();
+  for (const [k, v] of Object.entries(store || {})) {
+    const id = jobUrlId((v && (v.link || v.url)) || k);
+    if (!idx.has(id)) idx.set(id, k);
+  }
+  return idx;
+}
+
+// the stored key for this job (same posting under any URL form), or its
+// normalized URL when it isn't stored yet
+function storeKey(store, link) {
+  const k = normalizeUrl(link);
+  if (store && store[k]) return k;
+  return idIndex(store).get(jobUrlId(link)) || k;
+}
+
+const STATUS_RANK = { saved: 0, filled: 1, applied: 2, OA: 3, interview: 4, offer: 6, rejected: 5, ghosted: 5 };
+
+// Collapse entries that are the same posting (same jobUrlId) into one.
+// Imported jobs: keep the earliest sighting, fill blanks from the others.
+// Tracker: keep the furthest-along entry, never lose notes/referral/dates.
+function dedupeStore(store, kind) {
+  const groups = new Map();
+  for (const [k, v] of Object.entries(store || {})) {
+    const id = jobUrlId((v && (v.link || v.url)) || k);
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push([k, v]);
+  }
+  let merged = 0;
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    list.sort(([, a], [, b]) => kind === "tracker"
+      ? (STATUS_RANK[b.status] ?? 0) - (STATUS_RANK[a.status] ?? 0) || (b.updatedAt || 0) - (a.updatedAt || 0)
+      : (a.postedAt || a.addedAt || 0) - (b.postedAt || b.addedAt || 0));
+    const [keepKey, keep] = list[0];
+    for (const [k, v] of list.slice(1)) {
+      for (const [f, val] of Object.entries(v)) {
+        if (val == null || val === "" || (Array.isArray(val) && !val.length)) continue;
+        if (keep[f] == null || keep[f] === "" || keep[f] === "none" || (Array.isArray(keep[f]) && !keep[f].length)) keep[f] = val;
+      }
+      if (kind === "tracker" && v.notes && keep.notes && !keep.notes.includes(v.notes)) keep.notes += "\n" + v.notes;
+      if (kind !== "tracker" && v.postedAt && (!keep.postedAt || v.postedAt < keep.postedAt)) keep.postedAt = v.postedAt;
+      delete store[k];
+      merged++;
+    }
+    store[keepKey] = keep;
+  }
+  return merged;
 }
 
 // Company + title signature that collapses cosmetic title variants
