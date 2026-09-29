@@ -16,15 +16,46 @@ async function ensureAlarm() {
     // weekly silent safety net — full manual backups live in the dashboard
     chrome.alarms.create("autobackup", { delayInMinutes: 10, periodInMinutes: 7 * 1440 });
   }
+  if (!(await chrome.alarms.get("selfreload"))) {
+    // unpacked install: pick up code edits on disk without a manual ↻
+    chrome.alarms.create("selfreload", { delayInMinutes: 1, periodInMinutes: 1 });
+  }
   if (!(await chrome.alarms.get("inboxsync"))) {
     // check the inbox for new job emails every 30 min (no-op until Gmail connected)
     chrome.alarms.create("inboxsync", { delayInMinutes: 2, periodInMinutes: 30 });
   }
 }
-chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); gmailSync(false).catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => { rememberLoadedCode(); ensureAlarm(); gmailSync(false).catch(() => {}); });
 chrome.runtime.onStartup.addListener(() => { ensureAlarm(); gmailSync(false).catch(() => {}); });
 
+// ---------- self-reload (unpacked installs) ----------
+// Chrome keeps running the old code after files change until someone clicks
+// ↻ at chrome://extensions. An unpacked extension reads its own files straight
+// from disk, so fingerprint them once a minute and reload when they change.
+const CODE_FILES = ["manifest.json", "background.js", "parser.js", "content.js", "emailscan.js", "dashboard.js", "dashboard.html", "popup.js", "popup.html", "options.js", "options.html"];
+async function codeFingerprint() {
+  let h = 0;
+  for (const f of CODE_FILES) {
+    const t = await fetch(chrome.runtime.getURL(f), { cache: "no-store" }).then((r) => r.text()).catch(() => "");
+    for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+// fingerprint of the code Chrome actually loaded — saved at install/reload
+// (the service worker itself restarts constantly, so it can't live in memory)
+async function rememberLoadedCode() {
+  await chrome.storage.local.set({ loadedCodeFingerprint: await codeFingerprint() });
+}
+async function reloadIfCodeChanged() {
+  if (chrome.runtime.getManifest().update_url) return; // store install: never
+  const { loadedCodeFingerprint } = await chrome.storage.local.get("loadedCodeFingerprint");
+  const now = await codeFingerprint();
+  if (loadedCodeFingerprint == null) { await chrome.storage.local.set({ loadedCodeFingerprint: now }); return; }
+  if (now !== loadedCodeFingerprint) chrome.runtime.reload(); // onInstalled re-saves it
+}
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "selfreload") { await reloadIfCodeChanged(); return; }
   if (alarm.name === "autobackup") {
     try {
       const all = await chrome.storage.local.get(null);
@@ -98,7 +129,7 @@ const geminiUrl = (model, key) =>
 // Personal-use default. If this folder is ever shared/published, remove this.
 const DEFAULT_API_KEY = "";
 
-const BG_VERSION = 10; // v10 = in-place healing rescan — dashboard checks this
+const BG_VERSION = 11; // v11 = job-id dedupe + clean email parse — dashboard checks this
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "PING") {
@@ -253,17 +284,7 @@ function gmailMessageText(payload) {
     const d = b64urlDecode(p.data);
     if (/html/.test(p.mime)) html += d; else if (/plain/.test(p.mime)) plain += d;
   }
-  if (html) {
-    html = html
-      .replace(/<a\s[^>]*?href\s*=\s*"([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, " $2 $1 ")
-      .replace(/<a\s[^>]*?href\s*=\s*'([^']+)'[^>]*>([\s\S]*?)<\/a>/gi, " $2 $1 ")
-      .replace(/<(style|script)[\s\S]*?<\/\1>/gi, " ")
-      .replace(/<\/(p|div|tr|td|table|h\d|li|br)[^>]*>/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/&#\d+;/g, " ");
-    return html;
-  }
-  return plain;
+  return html ? htmlToImportText(html) : plain;
 }
 
 async function gmailSync(interactive) {

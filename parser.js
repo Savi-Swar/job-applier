@@ -606,7 +606,46 @@ function parseImport(text) {
       agoMin: base.agoMin ?? other.agoMin,
     });
   }
-  return [...best.values()];
+  return [...best.values()].map((j) => ({ ...j, role: j.role === "Imported job" ? j.role : cleanRole(j.role, j.location) }));
+}
+
+// Tidy a posting title for display: drop requisition numbers ("- 30069",
+// "(20097565)", "Req #R-1234"), scraped-page junk ("Job Details | our team"),
+// and a trailing "- City" that just repeats the location column.
+function cleanRole(role, location) {
+  let r = String(role || "").replace(/\s+/g, " ").trim();
+  if (!r) return r;
+  r = r
+    .replace(/\s*\b(job details|job description|apply now)\b.*$/i, "")
+    .replace(/\s*\breq(?:uisition)?\.?\s*(?:id|#|no\.?)?\s*:?\s*[A-Z]{0,4}-?\d{3,}\b/gi, "")
+    .replace(/\s*[([]\s*(?:req(?:uisition)?\.?\s*(?:id|#|no\.?)?\s*:?\s*)?[A-Z]{0,4}-?\d{4,}(?:-\d+)?\s*[)\]]/gi, "")
+    .replace(/\s*[-–—|,:]\s*(?:req(?:uisition)?\.?\s*(?:id|#|no\.?)?\s*:?\s*)?(?:[A-Z]{1,4}-?)?\d{4,}(?:-\d+)?(?=\s*(?:[-–—|,]|$))/gi, "");
+  const city = (String(location || "").split(",")[0] || "").trim();
+  if (city) r = r.replace(new RegExp("\\s*[-–—|,]\\s*" + city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:,\\s*[A-Z]{2})?\\s*$", "i"), "");
+  r = r.replace(/\s*[-–—|,:]\s*$/, "").replace(/^\s*[-–—|,:]\s*/, "").replace(/\s+/g, " ").trim();
+  return r || String(role).trim();
+}
+
+// Flatten an email's HTML to parseImport-ready text: every <a> becomes
+// "its text  its-url", block ends become newlines — so a Jobright card keeps
+// its line shape (company / industry / NN% / role / location / time ago).
+// Shared by the Gmail API sync and the in-page Gmail/Outlook scanner.
+function htmlToImportText(html) {
+  return String(html || "")
+    .replace(/<a\s[^>]*?href\s*=\s*"([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, " $2 $1 ")
+    .replace(/<a\s[^>]*?href\s*=\s*'([^']+)'[^>]*>([\s\S]*?)<\/a>/gi, " $2 $1 ")
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\/(p|div|tr|td|table|h\d|li|br)[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/&#\d+;/g, " ");
+}
+
+// An import whose company/role came from a bad parse: the email sender as the
+// company, or the whole card glued into the title ("ZOVUComputer Software ·
+// Early Stage95%Backend…"). Rescans overwrite these instead of keeping them.
+function isMangledImport(j) {
+  const co = (j && j.company) || "", role = (j && j.role) || "";
+  return /jobright|instant alert/i.test(co) || /\d%|·|\d+ (minute|hour|day)s? ag|referrals?\d|\$\d/i.test(role) || role.length > 110;
 }
 
 // filter parsed entries to real job-posting links only (drops unsubscribe,

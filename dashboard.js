@@ -54,7 +54,9 @@ const SRC_NAME = { ...Object.fromEntries(GH_SOURCES.map((s) => [s.id, s.name])),
 
 // all feed jobs = fetched sources + imported, deduped (imported kept fresh)
 function withImported(fetched, importedJobs) {
-  const imp = Object.values(importedJobs || {}).map((j) => ({
+  // a bad-parse leftover (sender as company / whole card as title) never
+  // reaches the feed — the next scan of that email replaces it properly
+  const imp = Object.values(importedJobs || {}).filter((j) => !isMangledImport(j)).map((j) => ({
     ...j, source: "imported", category: j.category || categorize(j.role, ""),
     // postedAt (email arrival minus the card's "N minutes ago") → live age
     daysOld: j.postedAt ? Math.max(0, Math.floor((Date.now() - j.postedAt) / 864e5)) : (j.daysOld ?? 0),
@@ -407,7 +409,7 @@ function jobsTableHtml(jobs, tracker, hidden = {}) {
     return `<tr data-i="${i}">
       <td>${fitBadge(j._fit)}</td>
       <td><b>${esc(j.company)}</b>${j.closed ? '<span class="badge closed">closed</span>' : ""}${tracked ? `<span class="badge applied">${esc(tracked.status)}</span>` : ""}</td>
-      <td>${esc(j.role)}${j.salary ? `<div class="muted">${esc(j.salary)}</div>` : ""}${j.noSponsorship ? '<span class="badge" title="No visa sponsorship">🛂</span>' : ""}${j.citizenOnly ? '<span class="badge" title="US citizenship required">🇺🇸</span>' : ""}</td>
+      <td title="${esc(j.role)}">${esc(cleanRole(j.role, j.location))}${j.salary ? `<div class="muted">${esc(j.salary)}</div>` : ""}${j.noSponsorship ? '<span class="badge" title="No visa sponsorship">🛂</span>' : ""}${j.citizenOnly ? '<span class="badge" title="US citizenship required">🇺🇸</span>' : ""}</td>
       <td><span class="${catClass(j.category)}">${esc(j.category)}</span></td>
       <td>${esc(j.location)}</td>
       <td class="muted mono" style="white-space:nowrap">${ageLabel(j.daysOld)}${j.daysOld > 21 ? ' <span class="badge cooked" title="21+ days old — highkey cooked">💀</span>' : ""}</td>
@@ -811,7 +813,7 @@ async function openDetail(jobLike, autoTool) {
     <div style="display:flex;justify-content:space-between;align-items:start">
       <div>
         <h2>${esc(j.company)}</h2>
-        <div>${esc(j.role)}</div>
+        <div title="${esc(j.role)}">${esc(cleanRole(j.role, j.location))}</div>
         <div class="muted">${[j.location, j.salary, j.daysOld != null ? "posted " + ageLabel(j.daysOld) + (j.daysOld > 0 ? " ago" : "") : "", SRC_NAME[j.source] || ""].filter(Boolean).map(esc).join(" · ")}
           ${j.category ? `<span class="${catClass(j.category)}">${esc(j.category)}</span>` : ""}</div>
       </div>
@@ -1444,7 +1446,7 @@ const STALE_BG_MSG =
 async function bgIsCurrent() {
   try {
     const pong = await chrome.runtime.sendMessage({ type: "PING" });
-    return !!pong && pong.v >= 10; // v10 = healing rescan loaded
+    return !!pong && pong.v >= 11; // v11 = job-id dedupe + clean email parse
   } catch { return false; }
 }
 
@@ -1814,6 +1816,19 @@ async function migrate() {
   {
     const { importedJobs: ij = {}, tracker: tr = {} } = await chrome.storage.local.get(["importedJobs", "tracker"]);
     const a = dedupeStore(ij, "imported"), b = dedupeStore(tr, "tracker");
+    // tracker rows saved from a bad email parse: take the clean name/title
+    // from the (re-scanned) import of the same job
+    const impIdx = idIndex(ij);
+    let healed = 0;
+    for (const e of Object.values(tr)) {
+      if (!isMangledImport({ company: e.company, role: e.title })) continue;
+      const src = ij[impIdx.get(jobUrlId(e.url || ""))];
+      if (src && !isMangledImport(src)) {
+        Object.assign(e, { company: src.company, title: src.role, location: e.location || src.location || "" });
+        healed++;
+      }
+    }
+    if (healed) await chrome.storage.local.set({ tracker: tr });
     if (a || b) {
       await chrome.storage.local.set({ importedJobs: ij, tracker: tr });
       toast(`Merged ${a + b} duplicate job${a + b > 1 ? "s" : ""}`);
