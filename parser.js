@@ -760,18 +760,55 @@ function jobLinksOnly(entries) {
   return entries.filter((j) => ATS.test(j.link) && !SKIP.test(j.link));
 }
 
+// ids that name one specific posting on the employer's own ATS
+const STRONG_ID = /^(gh|lever|ashby|wd|meta|google|apple|ms|amazon|sr|workable|jobvite|bamboo|icims|orc|taleo|sf|ef):/;
+
+// links that point at an aggregator's copy of someone else's posting
+const AGGREGATOR_ID = /^(jobright|li|indeed|simplify):|^https:\/\/(www\.)?(jobright\.ai|linkedin\.com|indeed\.com|simplify\.jobs|lnkd\.in|ziprecruiter\.com)\//;
+
+// Merge the per-source lists into one feed without losing real postings.
+// • Same job id (any URL form) → one row.
+// • Different real postings are always kept, even with identical titles
+//   (several "Software Engineer Intern" reqs, two career-page URLs…).
+// • An aggregator copy (Jobright, LinkedIn, Indeed, Simplify) has no employer
+//   id: if a same company+title posting came from ANOTHER source, it's that
+//   job — it lends its salary/posted time to that row instead of adding one.
+// • A career-page link with no ATS id folds into a same-title ATS posting
+//   from another source (the page usually wraps that posting).
 function dedupeJobs(lists) {
-  const jobs = [];
-  const seenUrl = new Set();
-  const seenSig = new Set();
-  for (const list of lists) {
+  const tagged = [];
+  lists.forEach((list, li) => {
     for (const j of list) {
       const uid = j.link ? jobUrlId(j.link) : null;
-      const sig = jobSignature(j.company, j.role);
-      if ((uid && seenUrl.has(uid)) || seenSig.has(sig)) continue;
-      if (uid) seenUrl.add(uid);
-      seenSig.add(sig);
-      jobs.push(j);
+      const kind = !uid ? "none" : STRONG_ID.test(uid) ? "strong" : AGGREGATOR_ID.test(uid) ? "agg" : "plain";
+      tagged.push({ j, li, uid, kind, sig: jobSignature(j.company, j.role) });
+    }
+  });
+  const jobs = [];
+  const seenId = new Set();
+  const bySig = new Map(); // signature → [{ li, kind, job }]
+  const lend = (into, from) => {
+    if (!into.salary && from.salary) into.salary = from.salary;
+    if (from.daysOld != null && (into.daysOld == null || from.daysOld < into.daysOld)) into.daysOld = from.daysOld;
+    if (from.postedAt && (!into.postedAt || from.postedAt < into.postedAt)) into.postedAt = from.postedAt;
+    if (!into.location && from.location) into.location = from.location;
+  };
+  for (const pass of ["strong", "plain", "agg", "none"]) {
+    for (const t of tagged) {
+      if (t.kind !== pass) continue;
+      if (t.uid && seenId.has(t.uid)) continue;
+      const prior = bySig.get(t.sig) || [];
+      const other = prior.filter((p) => p.li !== t.li);
+      const twin =
+        pass === "agg" || pass === "none" ? other[0] :
+        pass === "plain" ? other.find((p) => p.kind === "strong") : null;
+      if (twin) { lend(twin.job, t.j); continue; }
+      if (pass === "none" && prior.length) continue;
+      if (t.uid) seenId.add(t.uid);
+      const job = { ...t.j };
+      prior.push({ li: t.li, kind: t.kind, job });
+      bySig.set(t.sig, prior);
+      jobs.push(job);
     }
   }
   return jobs;

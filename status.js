@@ -19,10 +19,11 @@
   const imported = Object.values(st.importedJobs || {});
   const tracker = Object.values(st.tracker || {});
   const history = { responded: new Set(), rejected: new Set() };
-  const all = [...imported.filter((j) => !isMangledImport(j)).map((j) => ({ ...j, source: "imported",
+  const imp = [...imported.filter((j) => !isMangledImport(j)).map((j) => ({ ...j, source: "imported",
     category: j.category || categorize(j.role, ""),
-    daysOld: j.postedAt ? Math.floor((Date.now() - j.postedAt) / 864e5) : 0 })), ...fc.jobs];
-  const scored = dedupeJobs([all]).map((j) => ({ ...j, _fit: scoreJob(j, st.profile, history) }))
+    daysOld: j.postedAt ? Math.floor((Date.now() - j.postedAt) / 864e5) : 0 }))];
+  // same merge the dashboard does: imports first, then the fetched feed
+  const scored = dedupeJobs([imp, fc.jobs]).map((j) => ({ ...j, _fit: scoreJob(j, st.profile, history) }))
     .sort((a, b) => b._fit.score - a._fit.score);
   const gradeDist = {};
   for (const j of scored) gradeDist[j._fit.grade] = (gradeDist[j._fit.grade] || 0) + 1;
