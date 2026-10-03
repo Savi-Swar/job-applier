@@ -377,11 +377,36 @@ async function refreshAllSources() {
     ...watchlist.map((w) => ({ name: w.name || w.slug, run: () => fetchWatch(w) })),
   ];
   const results = await Promise.allSettled(tasks.map((t) => t.run()));
+  const { sourceCache = {}, feedCache: prevCache } = await chrome.storage.local.get(["sourceCache", "feedCache"]);
   const errors = [], perSource = {};
+  const now = Date.now();
+  let failed = 0;
   results.forEach((r, i) => {
-    if (r.status === "fulfilled") perSource[tasks[i].name] = r.value.length;
-    else { errors.push(String(r.reason?.message || r.reason)); perSource[tasks[i].name] = "error"; }
+    const name = tasks[i].name;
+    if (r.status === "fulfilled") {
+      perSource[name] = r.value.length;
+      sourceCache[name] = { at: now, jobs: r.value };
+    } else {
+      failed++;
+      errors.push(`${name}: ${String(r.reason?.message || r.reason)}`);
+      // a source that's down (or we're offline) keeps its last good jobs,
+      // aged by the time since they were fetched — never wipe the feed
+      const prev = sourceCache[name];
+      if (prev && now - prev.at < 3 * 864e5) {
+        const aged = Math.floor((now - prev.at) / 864e5);
+        results[i] = { status: "fulfilled", value: prev.jobs.map((j) => ({ ...j, daysOld: j.daysOld == null ? null : j.daysOld + aged })) };
+        perSource[name] = `kept ${prev.jobs.length} (fetch failed)`;
+      } else perSource[name] = "error";
+    }
   });
+  // everything failed (offline / asleep): leave the feed exactly as it was
+  if (failed === tasks.length) {
+    const kept = prevCache && prevCache.jobs?.length ? { ...prevCache, lastAttemptFailedAt: now } : { fetchedAt: now, jobs: [], errors, perSource };
+    await chrome.storage.local.set({ feedCache: kept });
+    kept.allFailed = true;
+    return kept;
+  }
+  await chrome.storage.local.set({ sourceCache });
   // company boards first → their direct links win over list/aggregator copies
   const ordered = [...results.keys()].sort((a, b) => (tasks[b].name in watchIndex(watchlist)) - (tasks[a].name in watchIndex(watchlist)));
   const jobs = dedupeJobs(ordered.map((i) => (results[i].status === "fulfilled" ? results[i].value : [])));
@@ -394,7 +419,7 @@ async function refreshAllSources() {
       else if (j.daysOld != null && !j.dateFrom) j.dateFrom = SRC_LABEL[j.source] || "list";
     }
   } catch (e) { errors.push("employer dates: " + (e.message || e)); }
-  const feedCache = { fetchedAt: Date.now(), jobs, errors, perSource };
+  const feedCache = { fetchedAt: Date.now(), jobs, errors, perSource, failedSources: failed };
   await chrome.storage.local.set({ feedCache });
   return feedCache;
 }

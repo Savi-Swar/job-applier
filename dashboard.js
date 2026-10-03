@@ -424,7 +424,8 @@ async function renderToday() {
   const pool = sortJobs(attachScores(applyFilters(withImported(feedCache.jobs, importedJobs), f, tracker), profile, tracker), "match")
     .filter((j) => meetsGrade(j, f.minGrade));
   const fresh = pool.filter((j) => j.daysOld != null && j.daysOld <= 2);
-  const backlog = pool.filter((j) => j.daysOld == null || (j.daysOld >= 3 && j.daysOld <= 21));
+  // undated jobs (no posted date anywhere) live in the Feed tab, not Today's buckets
+  const backlog = pool.filter((j) => j.daysOld != null && j.daysOld >= 3 && j.daysOld <= 21);
   const cooked = pool.filter((j) => j.daysOld != null && j.daysOld > 21);
 
   const all = Object.values(tracker).map(normEntry);

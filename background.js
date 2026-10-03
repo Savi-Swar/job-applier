@@ -64,7 +64,11 @@ function importJobs(jobs) {
 // hourly feed refresh (+ on demand from the dashboard); one at a time
 let feedRefreshing = null;
 function refreshFeedInBackground() {
-  if (!feedRefreshing) feedRefreshing = refreshAllSources().finally(() => { feedRefreshing = null; });
+  if (!feedRefreshing) feedRefreshing = refreshAllSources().then((fc) => {
+    // offline / sources down → try again in 5 minutes, not in an hour
+    if (fc && (fc.allFailed || fc.failedSources)) chrome.alarms.create("feedretry", { delayInMinutes: 5 });
+    return fc;
+  }).finally(() => { feedRefreshing = null; });
   return feedRefreshing.catch((e) => { console.warn("feed refresh", e); return null; });
 }
 
@@ -96,7 +100,7 @@ async function reloadIfCodeChanged() {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "selfreload") { await reloadIfCodeChanged(); return; }
-  if (alarm.name === "feedrefresh") { await refreshFeedInBackground(); return; }
+  if (alarm.name === "feedrefresh" || alarm.name === "feedretry") { await refreshFeedInBackground(); return; }
   if (alarm.name === "autobackup") {
     try {
       const all = await chrome.storage.local.get(null);
